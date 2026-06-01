@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "die-firma-orchestrator"
+version = "0.1.0"
+description = "Die Firma — autonomous agency orchestrator (Python side)"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.13.4",
+  "httpx>=0.28.1",
+  "anthropic>=0.105.2",
+  "pyyaml>=6.0.3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff",
+  "mypy",
+  "pytest",
+  "pytest-cov",
+  "types-PyYAML",
+]
+
+[project.scripts]
+die-firma = "die_firma.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["die_firma*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+disallow_untyped_defs = true
+# Third-party libs without bundled stubs.
+[[tool.mypy.overrides]]
+module = ["anthropic.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = """
+  --cov=die_firma
+  --cov-report=term-missing
+  --cov-fail-under=85
+"""
+testpaths = ["tests"]
+
+[tool.coverage.run]
+# llm.py is the live Anthropic SDK wrapper; it is exercised only against the
+# real API (Phase 3+), never in the keyless mock test run.
+omit = ["die_firma/llm.py"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]

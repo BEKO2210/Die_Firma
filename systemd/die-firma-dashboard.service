@@ -1,0 +1,33 @@
+# systemd --user unit for the dashboard (read-model owner + ingest + SSE + UI).
+# Install: copy to ~/.config/systemd/user/, then:
+#   loginctl enable-linger "$USER"
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now die-firma-dashboard.service
+# No root, no Docker (prompt §1). Loopback-only bind (prompt §7).
+[Unit]
+Description=Die Firma — Dashboard (Astro/Node read-model + ingest + SSE)
+After=network.target
+
+[Service]
+Type=simple
+# Adjust to your checkout location:
+WorkingDirectory=%h/Die_Firma/apps/dashboard
+# Secrets come from the repo .env (chmod 600). NEVER commit real values.
+EnvironmentFile=%h/Die_Firma/.env
+Environment=HOST=127.0.0.1
+Environment=PORT=4321
+Environment=DASHBOARD_HOST=127.0.0.1
+Environment=DASHBOARD_PORT=4321
+Environment=DIE_FIRMA_DB_PATH=%h/Die_Firma/state/dashboard.db
+ExecStartPre=/usr/bin/env npm run build
+ExecStart=/usr/bin/env node ./dist/server/entry.mjs
+Restart=on-failure
+RestartSec=2
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=%h/Die_Firma/state
+
+[Install]
+WantedBy=default.target

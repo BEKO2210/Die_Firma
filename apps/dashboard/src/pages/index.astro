@@ -1,0 +1,198 @@
+---
+import Layout from "../components/Layout.astro";
+import { getDb } from "../lib/db.ts";
+import { listEvents, listMetrics, listSubtasks, listTasks, todaySpend } from "../lib/queries.ts";
+
+export const prerender = false;
+
+// SSR initial snapshot from the read-model. The client then keeps it live via
+// SSE (+ 2s polling fallback). Read-only: this page never writes.
+const db = getDb();
+const tasks = listTasks(db).map((t) => ({ ...t, subtasks: listSubtasks(db, t.id) }));
+const events = listEvents(db, { limit: 100 });
+const metrics = listMetrics(db, 14);
+const today = new Date().toISOString().slice(0, 10);
+const bootstrap = { tasks, events, metrics, today, today_spend: todaySpend(db, today) };
+---
+
+<Layout>
+  <header class="app">
+    <h1>DIE&nbsp;FIRMA</h1>
+    <span class="sub">autonome digitale Agentur — read-only Monitor</span>
+    <span class="conn" id="conn" data-state="polling" data-testid="conn-state">polling</span>
+  </header>
+
+  <main>
+    <section class="panel" aria-labelledby="kanban-h">
+      <h2 id="kanban-h">Kanban</h2>
+      <div class="kanban" id="kanban" data-testid="kanban">
+        <div class="col"><h3>Queue <span class="count" data-count="queue">0</span></h3><div data-col="queue"></div></div>
+        <div class="col"><h3>In Progress <span class="count" data-count="progress">0</span></h3><div data-col="progress"></div></div>
+        <div class="col"><h3>Review <span class="count" data-count="review">0</span></h3><div data-col="review"></div></div>
+        <div class="col"><h3>Done <span class="count" data-count="done">0</span></h3><div data-col="done"></div></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="agents-h">
+      <h2 id="agents-h">Agenten-Monitor</h2>
+      <table data-testid="agents">
+        <thead>
+          <tr><th scope="col">Agent</th><th scope="col">Aktive Tasks</th><th scope="col">Tokens (in/out)</th><th scope="col">$ Kosten</th></tr>
+        </thead>
+        <tbody id="agents-body"></tbody>
+      </table>
+    </section>
+
+    <section class="panel" aria-labelledby="term-h">
+      <h2 id="term-h">Live-Terminal</h2>
+      <div class="term" id="term" data-testid="terminal" role="log" aria-live="polite" aria-label="Telemetrie-Stream"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="metrics-h">
+      <h2 id="metrics-h">Metriken</h2>
+      <div class="metrics-grid" id="metrics" data-testid="metrics"></div>
+    </section>
+  </main>
+
+  <script type="application/json" id="bootstrap" set:html={JSON.stringify(bootstrap)}></script>
+
+  <script>
+    type AnyTask = {
+      id: string; type: string | null; priority: number | null; title: string | null;
+      status: string | null; agent: string | null; total_tokens_in: number;
+      total_tokens_out: number; total_cost_usd: number; error: string | null;
+    };
+    type AnyEvent = {
+      id: number; task_id: string | null; kind: string; agent: string | null;
+      status: string | null; message: string | null; ts: string;
+    };
+    type Metric = { date: string; tokens_in: number; tokens_out: number; cost_usd: number; tasks_done: number; tasks_failed: number };
+
+    const COLS: Record<string, string> = {
+      queued: "queue", awaiting_approval: "queue",
+      planning: "progress", running: "progress",
+      review: "review", blocked: "review",
+      done: "done", failed: "done", cancelled: "done",
+    };
+    const AGENTS = ["dispatcher", "worker", "reviewer", "sentinel"];
+
+    const $ = (sel: string, root: ParentNode = document) => root.querySelector(sel);
+    const esc = (s: unknown) =>
+      String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+    const badge = (status: string | null) =>
+      status
+        ? `<span class="badge" data-status="${esc(status)}" style="background:var(--${status})">${esc(status)}</span>`
+        : "";
+
+    let tasks: AnyTask[] = [];
+    let events: AnyEvent[] = [];
+    let metrics: Metric[] = [];
+    let todaySpend = { cost_usd: 0, tokens_in: 0, tokens_out: 0 };
+    let today = "";
+
+    function renderKanban() {
+      const counts: Record<string, number> = { queue: 0, progress: 0, review: 0, done: 0 };
+      const buckets: Record<string, string[]> = { queue: [], progress: [], review: [], done: [] };
+      for (const t of tasks) {
+        const col = COLS[t.status ?? "queued"] ?? "queue";
+        counts[col] = (counts[col] ?? 0) + 1;
+        buckets[col]!.push(
+          `<article class="card" data-testid="task-card" data-task-id="${esc(t.id)}">
+             <div class="id">${esc(t.id.slice(0, 8))} · ${esc(t.type ?? "?")} · P${esc(t.priority ?? "?")}</div>
+             <p class="title">${esc(t.title ?? "(ohne Titel)")}</p>
+             <div>${badge(t.status)} ${t.agent ? `<span class="badge">${esc(t.agent)}</span>` : ""}</div>
+             ${t.error ? `<div class="id" style="color:var(--failed)">${esc(t.error)}</div>` : ""}
+           </article>`,
+        );
+      }
+      for (const c of Object.keys(buckets)) {
+        const host = $(`[data-col="${c}"]`)!;
+        host.innerHTML = buckets[c]!.length ? buckets[c]!.join("") : `<div class="empty">leer</div>`;
+        ($(`[data-count="${c}"]`) as HTMLElement).textContent = String(counts[c] ?? 0);
+      }
+    }
+
+    function renderAgents() {
+      const body = $("#agents-body")!;
+      body.innerHTML = AGENTS.map((a) => {
+        const ts = tasks.filter((t) => t.agent === a);
+        const active = ts.filter((t) => !["done", "failed", "cancelled"].includes(t.status ?? "")).length;
+        const tin = ts.reduce((s, t) => s + t.total_tokens_in, 0);
+        const tout = ts.reduce((s, t) => s + t.total_tokens_out, 0);
+        const cost = ts.reduce((s, t) => s + t.total_cost_usd, 0);
+        return `<tr><td>${a}</td><td>${active}</td><td>${tin}/${tout}</td><td>$${cost.toFixed(4)}</td></tr>`;
+      }).join("");
+    }
+
+    function renderTerminal() {
+      const term = $("#term")!;
+      term.innerHTML = events
+        .slice(0, 200)
+        .map(
+          (e) =>
+            `<div class="line"><span class="t">${esc(e.ts)}</span> <span class="k">${esc(e.kind)}</span>` +
+            `${e.agent ? " " + esc(e.agent) : ""}${e.status ? " [" + esc(e.status) + "]" : ""}` +
+            `${e.task_id ? " " + esc(e.task_id.slice(0, 8)) : ""}${e.message ? " — " + esc(e.message) : ""}</div>`,
+        )
+        .join("");
+    }
+
+    function renderMetrics() {
+      const host = $("#metrics")!;
+      const m = metrics[0];
+      host.innerHTML = [
+        ["Tokens heute (in)", todaySpend.tokens_in],
+        ["Tokens heute (out)", todaySpend.tokens_out],
+        ["Kosten heute", "$" + todaySpend.cost_usd.toFixed(4)],
+        ["Done (heute)", m && m.date === today ? m.tasks_done : 0],
+        ["Failed (heute)", m && m.date === today ? m.tasks_failed : 0],
+        ["Tasks gesamt", tasks.length],
+      ]
+        .map(([l, v]) => `<div class="metric"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`)
+        .join("");
+    }
+
+    function renderAll() { renderKanban(); renderAgents(); renderTerminal(); renderMetrics(); }
+
+    async function refresh() {
+      const [tr, er, mr] = await Promise.all([
+        fetch("/api/tasks").then((r) => r.json()),
+        fetch("/api/events?limit=200").then((r) => r.json()),
+        fetch("/api/metrics").then((r) => r.json()),
+      ]);
+      tasks = tr.tasks; events = er.events; metrics = mr.daily;
+      todaySpend = mr.today_spend; today = mr.today;
+      renderAll();
+    }
+
+    // Bootstrap from SSR snapshot for instant first paint.
+    try {
+      const boot = JSON.parse(($("#bootstrap") as HTMLScriptElement).textContent || "{}");
+      tasks = boot.tasks ?? []; events = boot.events ?? []; metrics = boot.metrics ?? [];
+      todaySpend = boot.today_spend ?? todaySpend; today = boot.today ?? "";
+      renderAll();
+    } catch { /* fall through to refresh() */ }
+
+    // Live updates via SSE; on any event, re-pull authoritative projection.
+    const conn = $("#conn") as HTMLElement;
+    let pollTimer: number | undefined;
+    function startPolling() {
+      conn.dataset.state = "polling"; conn.textContent = "polling";
+      pollTimer = window.setInterval(refresh, 2000);
+    }
+    function stopPolling() { if (pollTimer) window.clearInterval(pollTimer); pollTimer = undefined; }
+
+    try {
+      const es = new EventSource("/api/stream");
+      es.onopen = () => { conn.dataset.state = "live"; conn.textContent = "live"; stopPolling(); };
+      es.onmessage = () => refresh();
+      es.addEventListener("error", () => { if (!pollTimer) startPolling(); });
+      // Any named event also triggers a refresh.
+      for (const k of ["task_created","task_updated","status_changed","log","error","escalation","cost_updated","token_usage","subtask_created","subtask_updated","agent_assigned","tool_call_start","tool_call_end"]) {
+        es.addEventListener(k, () => refresh());
+      }
+    } catch { startPolling(); }
+
+    void refresh();
+  </script>
+</Layout>
