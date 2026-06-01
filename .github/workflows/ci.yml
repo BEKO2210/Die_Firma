@@ -92,6 +92,7 @@ jobs:
         run: pip install -e ".[dev]"
       - name: Run mock E2E
         env:
-          DIE_FIRMA_INGEST_TOKEN: ci-e2e-token-not-a-placeholder-9f3a2b
+          # High-entropy, no banned placeholder substrings (passes the secret check).
+          DIE_FIRMA_INGEST_TOKEN: ci_e2e_Kf3a2bQ9x7Lm4Tz8Rv6Nw1Yp
           ANTHROPIC_API_KEY: sk-ant-ci-not-used-by-mock-executor-0000000000
         run: ./scripts/e2e.sh
