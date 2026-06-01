@@ -1,0 +1,99 @@
+---
+// Shared shell: dark, high-density, monospace. read-only dashboard.
+interface Props {
+  title?: string;
+}
+const { title = "Die Firma — Dashboard" } = Astro.props;
+---
+
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>{title}</title>
+    <style is:global>
+      :root {
+        --bg: #0d1117;
+        --panel: #161b22;
+        --panel-2: #1c2230;
+        --border: #30363d;
+        --fg: #e6edf3;
+        --muted: #9da7b3;
+        --accent: #58a6ff;
+        --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+        --queued: #8b949e;
+        --planning: #d29922;
+        --running: #58a6ff;
+        --review: #a371f7;
+        --blocked: #f85149;
+        --done: #3fb950;
+        --failed: #f85149;
+        --cancelled: #6e7681;
+        --awaiting_approval: #db6d28;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--mono);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      header.app {
+        display: flex;
+        align-items: baseline;
+        gap: 1rem;
+        padding: 0.6rem 1rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+      }
+      header.app h1 { font-size: 14px; margin: 0; letter-spacing: 0.04em; }
+      header.app .sub { color: var(--muted); font-size: 12px; }
+      header.app .conn { margin-left: auto; font-size: 12px; }
+      header.app .conn[data-state="live"] { color: var(--done); }
+      header.app .conn[data-state="polling"] { color: var(--planning); }
+      main { padding: 1rem; display: grid; gap: 1rem; }
+      section.panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.75rem;
+      }
+      section.panel > h2 {
+        margin: 0 0 0.5rem;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+      .kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
+      .col { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem; min-height: 80px; }
+      .col h3 { margin: 0 0 0.5rem; font-size: 12px; display: flex; justify-content: space-between; }
+      .col h3 .count { color: var(--muted); }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 0.5rem; margin-bottom: 0.5rem; }
+      .card .id { color: var(--muted); font-size: 11px; }
+      .card .title { font-size: 13px; margin: 0.15rem 0; }
+      .badge { display: inline-block; padding: 0 0.4rem; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); }
+      .badge[data-status] { color: var(--bg); }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--border); font-size: 12px; }
+      th { color: var(--muted); font-weight: 600; }
+      .term { max-height: 320px; overflow: auto; background: #010409; border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem; }
+      .term .line { white-space: pre-wrap; word-break: break-word; }
+      .term .k { color: var(--accent); }
+      .term .t { color: var(--muted); }
+      .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.5rem; }
+      .metric { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem; }
+      .metric .v { font-size: 18px; }
+      .metric .l { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+      .empty { color: var(--muted); font-style: italic; padding: 0.5rem; }
+      a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
