@@ -11,6 +11,9 @@ from pydantic import BaseModel, Field, field_validator
 
 TaskType = Literal["code_gen", "code_review", "automation", "data_prep"]
 DeliverableFormat = Literal["git_branch", "file", "report"]
+# Tuples for runtime use (argparse choices etc.); kept in sync with the Literals.
+TASK_TYPES: tuple[str, ...] = ("code_gen", "code_review", "automation", "data_prep")
+DELIVERABLE_FORMATS: tuple[str, ...] = ("git_branch", "file", "report")
 Agent = Literal["dispatcher", "worker", "reviewer", "sentinel"]
 Status = Literal[
     "queued",

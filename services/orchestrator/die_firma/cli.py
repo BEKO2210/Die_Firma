@@ -9,12 +9,15 @@ import argparse
 import shutil
 import sys
 import time
+import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .config import Config, load_config
 from .dispatcher import Dispatcher
 from .executor import make_executor
 from .ingest_client import IngestClient
+from .models import DELIVERABLE_FORMATS, TASK_TYPES
 from .orchestrator import Orchestrator
 from .sentinel import Sentinel
 from .watcher import ApprovalRegistry, ProcessedRegistry, load_job_file, scan_inbox
@@ -48,6 +51,32 @@ def cmd_submit(cfg: Config, args: argparse.Namespace) -> int:
     if src.resolve() != dest.resolve():
         shutil.copy2(src, dest)
     print(f"submitted {job.id} ({job.type}) -> {dest}")
+    return 0
+
+
+def cmd_new(cfg: Config, args: argparse.Namespace) -> int:
+    """Create a valid job in the inbox without hand-writing YAML/UUIDs."""
+    job_id = str(uuid.uuid4())
+    deadline = (datetime.now(UTC) + timedelta(days=args.days)).replace(microsecond=0)
+    lines = [
+        "---",
+        f"id: {job_id}",
+        f"type: {args.type}",
+        f"priority: {args.priority}",
+        f"deadline: {deadline.isoformat()}",
+        f"deliverable_format: {args.deliverable}",
+        f"requires_approval: {'true' if args.approve else 'false'}",
+    ]
+    if args.verify:
+        lines.append(f'verify: "{args.verify}"')
+    lines += ["---", f"# {args.title}", "", args.description or args.title, ""]
+    text = "\n".join(lines)
+
+    cfg.inbox.mkdir(parents=True, exist_ok=True)
+    dest = cfg.inbox / f"{job_id}.md"
+    dest.write_text(text, encoding="utf-8")
+    load_job_file(dest)  # fail loudly if the generated job is somehow invalid
+    print(f"created {job_id} ({args.type}) -> {dest}")
     return 0
 
 
@@ -124,6 +153,19 @@ def cmd_run(cfg: Config, args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="die-firma", description="Die Firma orchestrator")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p_new = sub.add_parser("new", help="create a new job in the inbox (no YAML needed)")
+    p_new.add_argument("title", help="short title / first line of the task")
+    p_new.add_argument("--type", choices=TASK_TYPES, default="code_gen")
+    p_new.add_argument("--priority", type=int, choices=(1, 2, 3), default=2)
+    p_new.add_argument(
+        "--deliverable", choices=DELIVERABLE_FORMATS, default="file", dest="deliverable"
+    )
+    p_new.add_argument("--verify", default=None, help="optional reproducible review command")
+    p_new.add_argument("--description", default=None, help="longer task description")
+    p_new.add_argument("--days", type=int, default=7, help="deadline in N days from now")
+    p_new.add_argument("--approve", action="store_true", help="require manual approval")
+    p_new.set_defaults(func=cmd_new)
 
     p_submit = sub.add_parser("submit", help="validate + drop a job into the inbox")
     p_submit.add_argument("file")

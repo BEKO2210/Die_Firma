@@ -79,22 +79,48 @@ degradation; the host-specific parts (firejail, real key, systemd,
 `notify-send`) are documented and must be exercised on a Pop!_OS host — they
 are **not** run in CI.
 
-## Quick start (development, mock executor — no API key)
+## Quick start — one command
+
+You only need **Node**, **npm** and **Python 3.11+** installed. No API key, no
+config, no manual setup:
 
 ```bash
-# 1) Dashboard
-cd apps/dashboard && npm ci && npm run build && npm run preview &
+git clone https://github.com/BEKO2210/Die_Firma && cd Die_Firma
+./firma demo
+```
 
-# 2) Orchestrator (separate shell)
-cd services/orchestrator && pip install -e ".[dev]"
-cp ../../.env.example ../../.env   # then fill REAL values; placeholders abort
+That single command installs everything the first time (dashboard deps, a
+Python venv, the orchestrator), **auto-generates a secure `.env` token**, builds
+and starts the dashboard + orchestrator, then drops an example job so you watch
+it move across the board. Open the printed URL (http://127.0.0.1:4321).
 
-# 3) Submit a job and watch it flow to outbox/ + status done
-python -m die_firma.cli submit ../../inbox/example.md
+### Everyday use
+
+```bash
+./firma start                       # set up (once) + start everything
+./firma new "Refactor the login flow"   # create a job — no YAML, no UUID needed
+./firma submit path/to/job.md       # or drop an existing job file
+./firma status                      # services + task statuses
+./firma logs                        # follow the live logs
+./firma stop                        # stop both services
+```
+
+`./firma new` accepts `--type {code_gen|code_review|automation|data_prep}`,
+`--priority {1,2,3}`, `--deliverable {git_branch|file|report}`, `--verify "cmd"`
+and `--approve`. Priority‑1 / `--approve` jobs wait for `./firma approve <id>`.
+
+<details>
+<summary>Manual / advanced (without the launcher)</summary>
+
+```bash
+./scripts/setup.sh                  # install deps + create .env
+# Dashboard:    cd apps/dashboard && npm run build && npm run preview
+# Orchestrator: cd services/orchestrator && python -m die_firma.cli run
 ```
 
 Full reproducible end-to-end (resets DB, seeds fresh, asserts `outbox/` +
 `done`): `./scripts/e2e.sh`.
+</details>
 
 ## Security notes (honest, per claude.md §7)
 
