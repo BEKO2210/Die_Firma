@@ -1,0 +1,17 @@
+{
+  "__comment": "Template wired into each worker Claude Code session. The executor copies this to <workdir>/.claude/settings.json, substituting __HOOKS_DIR__ with the absolute hooks/ path. Hooks emit telemetry to /api/ingest (the only writer). Identity + ingest token are passed via environment.",
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "python3 __HOOKS_DIR__/pre_tool_use.py" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "python3 __HOOKS_DIR__/post_tool_use.py" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "python3 __HOOKS_DIR__/stop.py" }] }
+    ],
+    "SubagentStop": [
+      { "hooks": [{ "type": "command", "command": "python3 __HOOKS_DIR__/subagent_stop.py" }] }
+    ]
+  }
+}

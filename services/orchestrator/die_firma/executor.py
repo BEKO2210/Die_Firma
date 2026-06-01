@@ -11,6 +11,7 @@ without a sandbox present.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -67,12 +68,24 @@ def make_executor(
     firejail_bin: str,
     allow_unsandboxed: bool,
     worker_model: str,
+    ingest_url: str | None = None,
+    ingest_token: str | None = None,
+    hooks_dir: Path | None = None,
+    settings_template: Path | None = None,
 ) -> Executor:
     """Factory selecting the executor from config.toml's [executor].mode."""
     if mode == "mock":
         return MockExecutor()
     if mode == "claude_code":
-        return ClaudeCodeExecutor(firejail_bin, allow_unsandboxed, worker_model)
+        return ClaudeCodeExecutor(
+            firejail_bin,
+            allow_unsandboxed,
+            worker_model,
+            ingest_url=ingest_url,
+            ingest_token=ingest_token,
+            hooks_dir=hooks_dir,
+            settings_template=settings_template,
+        )
     raise ValueError(f"unknown executor mode: {mode!r}")
 
 
@@ -142,11 +155,20 @@ class ClaudeCodeExecutor:
         allow_unsandboxed: bool,
         model: str,
         claude_bin: str = "claude",
+        *,
+        ingest_url: str | None = None,
+        ingest_token: str | None = None,
+        hooks_dir: Path | None = None,
+        settings_template: Path | None = None,
     ) -> None:
         self._firejail = firejail_bin
         self._allow_unsandboxed = allow_unsandboxed
         self._model = model
         self._claude = claude_bin
+        self._ingest_url = ingest_url
+        self._ingest_token = ingest_token
+        self._hooks_dir = hooks_dir
+        self._settings_template = settings_template
 
     def _build(self, prompt: str, workdir: Path, allowed_paths: list[str]) -> list[str]:
         have_firejail = shutil.which(self._firejail) is not None
@@ -168,8 +190,30 @@ class ClaudeCodeExecutor:
             self._firejail, self._claude, prompt, workdir, allowed_paths, self._model
         )
 
+    def _provision_session(self, job: Job, subtask: Subtask, workdir: Path) -> dict[str, str]:
+        """Write .claude/settings.json from the template (so the worker's hooks
+        fire) and return the identity/ingest env the hooks need."""
+        if self._settings_template is not None and self._hooks_dir is not None:
+            try:
+                tmpl = self._settings_template.read_text(encoding="utf-8")
+                settings = tmpl.replace("__HOOKS_DIR__", str(self._hooks_dir.resolve()))
+                claude_dir = workdir / ".claude"
+                claude_dir.mkdir(parents=True, exist_ok=True)
+                (claude_dir / "settings.json").write_text(settings, encoding="utf-8")
+            except OSError:  # pragma: no cover - filesystem edge
+                pass
+        env = dict(os.environ)
+        env["DIE_FIRMA_TASK_ID"] = job.id
+        env["DIE_FIRMA_SUBTASK_ID"] = subtask.id
+        if self._ingest_url is not None:
+            env["DIE_FIRMA_DASHBOARD_URL"] = self._ingest_url
+        if self._ingest_token is not None:
+            env["DIE_FIRMA_INGEST_TOKEN"] = self._ingest_token
+        return env
+
     def run(self, job: Job, subtask: Subtask, workdir: Path) -> ExecResult:
         workdir.mkdir(parents=True, exist_ok=True)
+        env = self._provision_session(job, subtask, workdir)
         prompt = (
             f"You are the worker agent. Job {job.id} ({job.type}). "
             f"Sub-task {subtask.id}: {subtask.title}\n\n{job.body}\n\n"
@@ -177,7 +221,7 @@ class ClaudeCodeExecutor:
         )
         cmd = self._build(prompt, workdir, job.allowed_paths)
         proc = subprocess.run(  # noqa: S603 — cmd is built from trusted config
-            cmd, cwd=workdir, capture_output=True, text=True, check=False
+            cmd, cwd=workdir, capture_output=True, text=True, check=False, env=env
         )
         tin, tout, cost = _usage_from_stream(proc.stdout)
         return ExecResult(

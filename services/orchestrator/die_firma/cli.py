@@ -30,6 +30,10 @@ def _build(cfg: Config) -> tuple[Orchestrator, IngestClient]:
         firejail_bin=cfg.firejail_bin,
         allow_unsandboxed=cfg.allow_unsandboxed,
         worker_model=cfg.models.get("worker", "claude-opus-4-8"),
+        ingest_url=cfg.dashboard_url,
+        ingest_token=cfg.ingest_token,
+        hooks_dir=cfg.root / "hooks",
+        settings_template=cfg.root / ".claude" / "settings.template.json",
     )
     sentinel = Sentinel(cfg.retry, ingest)
     orch = Orchestrator(cfg, ingest, executor, Dispatcher(), sentinel)

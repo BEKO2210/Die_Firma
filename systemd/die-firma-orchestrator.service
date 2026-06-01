@@ -1,0 +1,24 @@
+# systemd --user unit for the orchestrator (watcher + agents).
+# Install: copy to ~/.config/systemd/user/, then:
+#   systemctl --user enable --now die-firma-orchestrator.service
+# Starts after the dashboard so /api/ingest is reachable.
+[Unit]
+Description=Die Firma — Orchestrator (watcher + dispatcher/worker/reviewer/sentinel)
+After=network.target die-firma-dashboard.service
+Wants=die-firma-dashboard.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Die_Firma
+EnvironmentFile=%h/Die_Firma/.env
+Environment=DIE_FIRMA_DASHBOARD_URL=http://127.0.0.1:4321
+# Use the project's venv interpreter (created by scripts/setup.sh or manually).
+ExecStart=%h/Die_Firma/.venv/bin/python -m die_firma.cli run
+Restart=on-failure
+RestartSec=2
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

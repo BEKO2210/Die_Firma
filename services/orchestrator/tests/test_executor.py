@@ -68,6 +68,42 @@ def test_claude_executor_builds_sandboxed_when_present(monkeypatch, tmp_path):
     assert cmd[0] == "firejail"
 
 
+def test_provision_session_writes_settings_and_env(tmp_path, monkeypatch):
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    template = tmp_path / "settings.template.json"
+    template.write_text('{"cmd": "python3 __HOOKS_DIR__/pre_tool_use.py"}', encoding="utf-8")
+    ex = ClaudeCodeExecutor(
+        "firejail",
+        allow_unsandboxed=True,
+        model="m",
+        ingest_url="http://127.0.0.1:4321",
+        ingest_token="tok-abc",
+        hooks_dir=hooks,
+        settings_template=template,
+    )
+    job = make_job()
+    st = Subtask(id="s1", title="t", action="implement")
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    env = ex._provision_session(job, st, workdir)
+
+    settings = (workdir / ".claude" / "settings.json").read_text(encoding="utf-8")
+    assert str(hooks.resolve()) in settings
+    assert "__HOOKS_DIR__" not in settings
+    assert env["DIE_FIRMA_TASK_ID"] == job.id
+    assert env["DIE_FIRMA_SUBTASK_ID"] == "s1"
+    assert env["DIE_FIRMA_DASHBOARD_URL"] == "http://127.0.0.1:4321"
+    assert env["DIE_FIRMA_INGEST_TOKEN"] == "tok-abc"
+
+
+def test_provision_session_without_template_still_sets_identity(tmp_path):
+    ex = ClaudeCodeExecutor("firejail", allow_unsandboxed=True, model="m")
+    env = ex._provision_session(make_job(), Subtask(id="s1", title="t", action="a"), tmp_path)
+    assert env["DIE_FIRMA_TASK_ID"]
+    assert not (tmp_path / ".claude").exists()
+
+
 def test_usage_from_stream():
     stream = (
         '{"type":"assistant","usage":{"input_tokens":10,"output_tokens":4}}\n'

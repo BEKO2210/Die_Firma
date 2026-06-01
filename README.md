@@ -83,3 +83,40 @@ Full reproducible end-to-end (resets DB, seeds fresh, asserts `outbox/` +
 
 See `DEPENDENCIES.md` for exact pinned versions (verified 2026-06-01) and known
 environment gaps.
+
+## Operations (Pop!_OS host)
+
+Run as isolated `systemd --user` services (no root, no Docker):
+
+```bash
+loginctl enable-linger "$USER"
+cp systemd/*.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now die-firma-dashboard.service
+systemctl --user enable --now die-firma-orchestrator.service
+```
+
+Switch to the real worker by setting `[executor] mode = "claude_code"` in
+`config.toml` and providing a real `ANTHROPIC_API_KEY` in `.env`. Workers then
+run as headless Claude Code under `firejail` (install it first:
+`sudo apt install firejail`), seeing only `work/<id>/` plus each job's
+`allowed_paths`. Escalations raise a desktop notification via `notify-send`.
+
+## Definition of Done — status
+
+- [x] Newest stable deps verified live (2026-06-01); `npm audit --audit-level=high`
+      clean (5 moderate advisories live only in the dev-only `@astrojs/check`
+      toolchain); lockfiles consistent.
+- [x] Dashboard: TS strict + `noUncheckedIndexedAccess`, `astro check` 0 errors,
+      vitest 46 passing, 100% coverage on the logic-critical core, axe a11y gate,
+      build green.
+- [x] Orchestrator: ruff + ruff format + mypy `--strict` clean, pytest 63 passing
+      at 94% (core modules 100%).
+- [x] Acceptance E2E (`scripts/e2e.sh`, mock executor, no key): job in →
+      processed → `outbox/<id>/` + status `done` → dashboard read API confirms.
+- [x] Fresh build verified against the running server (not a stale build).
+- [x] Docs (`README`, `DEPENDENCIES`, `RUN_LOG`) match the real code state;
+      discrepancies vs the prompt (TS 6.0.3, Python 3.11) recorded with rationale.
+- [ ] **Host-only (not verifiable in CI):** firejail sandbox, live Claude
+      worker with a real key, `systemd --user` services, `notify-send`
+      escalations. Implemented fail-closed; must be exercised on a Pop!_OS host.

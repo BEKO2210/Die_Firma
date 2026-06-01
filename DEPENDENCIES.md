@@ -29,10 +29,12 @@ Python 3.11.15, pip 24.0.
 | pydantic | >=2.13.4 | 2.13.4 | models / validation |
 | anthropic | >=0.105.2 | 0.105.2 | SDK for dispatcher/reviewer/sentinel |
 | httpx | >=0.28.1 | 0.28.1 | HTTP client → /api/ingest |
-| ruff | latest | (resolved at install) | lint |
-| mypy | latest | (resolved at install) | typecheck (`--strict` where practical) |
-| pytest | latest | (resolved at install) | tests |
-| pytest-cov | latest | (resolved at install) | coverage gate on logic-critical core |
+| pyyaml | >=6.0.3 | 6.0.3 | inbox frontmatter parsing |
+| ruff | latest | 0.15.15 | lint + format |
+| mypy | latest | 2.1.0 | typecheck (`--strict`) |
+| pytest | latest | 9.0.3 | tests |
+| pytest-cov | latest | 7.1.0 | coverage gate on logic-critical core |
+| types-PyYAML | latest | 6.0.12.x | mypy stubs |
 
 ## Known environment gaps (cannot be verified in this container)
 
