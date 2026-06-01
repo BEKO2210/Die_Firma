@@ -1,0 +1,56 @@
+# =========================================================================
+# Die Firma — central configuration (read by Python via stdlib tomllib).
+# The locked architecture lives here: models, limits, concurrency, paths.
+# Secrets NEVER live here — those come from .env only.
+# =========================================================================
+
+[general]
+# Filesystem is the single source of truth for orchestration.
+inbox_dir   = "inbox"
+outbox_dir  = "outbox"
+work_dir    = "work"
+runlog_dir  = "runlog"
+state_dir   = "state"
+# How often the watcher polls inbox/ for new *.md drops (seconds).
+poll_interval_seconds = 2.0
+
+[dashboard]
+# Read-model + ingest live here. Loopback only (prompt §7).
+url = "http://127.0.0.1:4321"
+
+[executor]
+# "mock"        -> deterministic, no API key, used for tests + E2E.
+# "claude_code" -> spawns `claude -p ... --output-format stream-json`
+#                  under firejail with a path whitelist.
+mode = "mock"
+# Sandbox wrapper for the claude_code executor. If firejail is missing the
+# executor refuses to run real workers (fail-closed) unless allow_unsandboxed.
+firejail_bin = "firejail"
+allow_unsandboxed = false
+
+[concurrency]
+# Semaphore: max parallel tasks. Locked start value = 2 (prompt §1).
+max_parallel_tasks = 2
+
+[retry]
+# Sentinel retry policy: 3 attempts, exponential backoff (prompt §1).
+max_attempts = 3
+backoff_seconds = [2, 4, 8]
+
+[cost]
+# Hard daily USD limit. Orchestrator queries the day total before each
+# dispatch and pauses the queue when reached (prompt §1 / §7).
+daily_usd_limit = 10.0
+
+[models]
+# Model defaults — verify availability against `claude --model` / Anthropic
+# docs. Tiered to keep cost down (prompt §2).
+worker     = "claude-opus-4-8"      # strongest available Opus tier
+dispatcher = "claude-sonnet-4-6"    # Sonnet tier
+reviewer   = "claude-sonnet-4-6"    # Sonnet tier
+sentinel   = "claude-haiku-4-5"     # Haiku tier
+
+[approval]
+# Approval-gate trigger: priority 1 always gates; tasks may also opt in via
+# requires_approval: true in their frontmatter.
+gate_priority = 1
