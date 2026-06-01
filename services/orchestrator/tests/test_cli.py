@@ -61,6 +61,49 @@ def test_cmd_submit_copies_into_inbox(tmp_path):
     assert (cfg.inbox / "cli-job-1.md").is_file()
 
 
+def test_cmd_new_creates_valid_job(tmp_path):
+    cfg = make_cfg(tmp_path)
+    args = SimpleNamespace(
+        title="Build a greeting module",
+        type="code_gen",
+        priority=2,
+        deliverable="file",
+        verify="ls *.txt",
+        description="Generate a small module.",
+        days=7,
+        approve=False,
+    )
+    assert cli.cmd_new(cfg, args) == 0
+    files = list(cfg.inbox.glob("*.md"))
+    assert len(files) == 1
+    # The generated file must parse back into a valid Job (validated in cmd_new).
+    from die_firma.watcher import load_job_file
+
+    job = load_job_file(files[0])
+    assert job.type == "code_gen"
+    assert job.verify == "ls *.txt"
+    assert job.body.startswith("# Build a greeting module")
+
+
+def test_cmd_new_gated(tmp_path):
+    cfg = make_cfg(tmp_path)
+    args = SimpleNamespace(
+        title="Rotate secrets",
+        type="code_gen",
+        priority=1,
+        deliverable="report",
+        verify=None,
+        description=None,
+        days=3,
+        approve=True,
+    )
+    assert cli.cmd_new(cfg, args) == 0
+    from die_firma.watcher import load_job_file
+
+    job = load_job_file(next(cfg.inbox.glob("*.md")))
+    assert job.requires_approval is True and job.gated is True
+
+
 def test_cmd_approve(tmp_path):
     cfg = make_cfg(tmp_path)
     assert cli.cmd_approve(cfg, SimpleNamespace(id="j9")) == 0
