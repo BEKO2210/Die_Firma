@@ -4,14 +4,38 @@ A local, autonomous "digital agency" system. Drop a job as a Markdown file
 into `inbox/`; the system decomposes it into a DAG of atomic sub-tasks, runs
 them, validates the result, and delivers it to `outbox/` — fully automatically.
 
+![Die Firma dashboard — Kanban, agent monitor, live telemetry terminal and metrics](docs/assets/dashboard.png)
+
+> The read-only dashboard: Kanban (Queue / In Progress / Review / Done),
+> agent monitor with token & cost totals, a live telemetry terminal, and daily
+> metrics. Everything you see is a projection of the append-only event log —
+> the agents never write a pixel of it.
+
 ## The iron principle: deterministic one-way data flow
 
 The AI agents **never render or write the dashboard**. They emit telemetry
 only, via hooks. The dashboard is a **read-only projection** built from
 deterministic code:
 
-```
-Hooks (Python) ─HTTP POST→ /api/ingest ─→ SQLite (WAL) ─→ read-only UI (SSE)
+```mermaid
+flowchart LR
+    subgraph PY["Python side (HTTP only — never touches the DB)"]
+        ORC["Orchestrator<br/>dispatcher · worker · reviewer · sentinel"]
+        HK["Claude Code hooks"]
+    end
+    subgraph NODE["Node / Astro app (sole DB owner)"]
+        ING["/api/ingest/<br/>(only writer, strict allow-lists)"]
+        DB[("SQLite · WAL<br/>events → tasks/subtasks/metrics")]
+        UI["read-only UI<br/>(SSE + 2s polling)"]
+    end
+    FS["inbox/ · outbox/ · work/<br/>(single source of truth)"]
+
+    FS -->|drop job| ORC
+    ORC -->|deliver| FS
+    ORC -->|"POST telemetry"| ING
+    HK -->|"POST telemetry"| ING
+    ING --> DB
+    DB --> UI
 ```
 
 - **Exactly one process owns the DB:** the Node/Astro app. Python (orchestrator
