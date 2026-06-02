@@ -178,6 +178,13 @@ const { title = "Die Firma — Dashboard" } = Astro.props;
       .agent-meta { display: flex; justify-content: space-between; gap: 0.5rem; color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
       .agent-bar { height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
       .agent-bar > i { display: block; height: 100%; background: var(--c); border-radius: 999px; transition: width 300ms ease; }
+      /* Busy but no tokens measured yet -> animated indeterminate "working" bar. */
+      .agent-bar.pending > i {
+        background: linear-gradient(90deg, transparent, var(--c), transparent);
+        background-size: 40% 100%; background-repeat: no-repeat;
+        animation: agent-scan 1.1s ease-in-out infinite;
+      }
+      @keyframes agent-scan { 0% { background-position: -40% 0; } 100% { background-position: 140% 0; } }
       .agents-legend { margin: 0.55rem 0 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
       /* Terminal/Chat: full-height right column, tab bar fixed, body scrolls. */
       .terminal-panel {

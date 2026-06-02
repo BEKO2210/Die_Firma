@@ -245,14 +245,26 @@ const bootstrap = {
     function renderAgents() {
       const body = $("#agents-body")!;
       const byName = new Map(agents.map((a) => [a.agent, a]));
-      // Scale token bars relative to the busiest agent this render.
-      const maxTok = Math.max(1, ...agents.map((a) => a.tokens_in + a.tokens_out));
+      // Bar = this agent's share of ALL tokens processed so far (real work
+      // distribution). The worker dominates; dispatcher/sentinel are
+      // deterministic and legitimately near 0 — so a busy agent with no tokens
+      // yet gets an animated "working" bar instead of an empty one.
+      const totalTok = AGENTS.reduce((sum, a) => {
+        const s = byName.get(a);
+        return sum + (s ? s.tokens_in + s.tokens_out : 0);
+      }, 0);
       body.innerHTML = AGENTS.map((a) => {
         const s = byName.get(a);
         const tin = s?.tokens_in ?? 0;
         const tout = s?.tokens_out ?? 0;
+        const tok = tin + tout;
         const busy = isBusy(s);
-        const pct = Math.round(((tin + tout) / maxTok) * 100);
+        const share = totalTok > 0 ? Math.round((tok / totalTok) * 100) : 0;
+        // Working but nothing measured yet -> indeterminate animated bar.
+        const pending = busy && tok === 0;
+        const barTitle = totalTok > 0
+          ? `${share}% der gesamten Token-Arbeit (${fmt(tok)} Tokens)`
+          : busy ? "arbeitet — noch keine Tokens gemessen" : "keine Token-Arbeit";
         return `<article class="agent-card${busy ? " busy" : ""}" data-agent="${esc(a)}" data-testid="agent-card">
             <div class="agent-head">
               <span class="agent-dot"></span>
@@ -261,8 +273,8 @@ const bootstrap = {
               <span class="agent-state">${busy ? "arbeitet" : "bereit"}</span>
             </div>
             <div class="agent-action" title="${esc(agentAction(s))}">${esc(agentAction(s))}</div>
-            <div class="agent-meta"><span>Tasks ${s?.active ?? 0}/${s?.tasks ?? 0}</span><span>${fmt(tin)}↓ ${fmt(tout)}↑ tok</span></div>
-            <div class="agent-bar" title="Tokenanteil ${pct}% (relativ zum aktivsten Agenten)"><i style="width:${pct}%"></i></div>
+            <div class="agent-meta"><span>Tasks ${s?.active ?? 0}/${s?.tasks ?? 0}</span><span>${tok > 0 ? `${share}% · ${fmt(tin)}↓ ${fmt(tout)}↑` : (busy ? "läuft …" : "—")}</span></div>
+            <div class="agent-bar${pending ? " pending" : ""}" title="${esc(barTitle)}"><i style="width:${pending ? 100 : share}%"></i></div>
           </article>`;
       }).join("");
     }
@@ -298,10 +310,16 @@ const bootstrap = {
       // 3 cumulative.
       const m = metrics[0];
       const failedToday = m && m.date === today ? m.tasks_failed : 0;
+      // Stall detection: while a task is active, show seconds since the last
+      // event so a hang is visible (vs. "läuft" when telemetry keeps flowing).
+      const idleSec = live.idle_sec === null ? null : Math.round(live.idle_sec);
+      const activeSub = live.active_tasks > 0
+        ? (idleSec !== null && idleSec > 20 ? `⚠ ${idleSec}s keine Aktivität` : "läuft …")
+        : "ruhig";
       const tiles: Array<[string, string, string, boolean]> = [
         ["Tokens/s", fmt(live.tokens_per_sec), `${fmt(live.tokens_in_per_sec)}↓ ${fmt(live.tokens_out_per_sec)}↑`, true],
         ["Events/s", fmt(live.events_per_sec), `${live.window_sec}s Fenster`, true],
-        ["Aktive Tasks", String(live.active_tasks), idle ? "ruhig" : "läuft", true],
+        ["Aktive Tasks", String(live.active_tasks), activeSub, true],
         ["Tokens heute", fmt(todaySpend.tokens_in + todaySpend.tokens_out), `${fmt(todaySpend.tokens_in)} / ${fmt(todaySpend.tokens_out)}`, false],
         ["Tasks gesamt", String(tasks.length), `${tasks.filter((t) => t.status === "done").length} fertig`, false],
         ["Failed heute", String(failedToday), "fehlgeschlagen", false],
