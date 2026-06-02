@@ -3,7 +3,7 @@
 
 import type { APIRoute } from "astro";
 import { getDb } from "../../lib/db.ts";
-import { agentStats, listMetrics, todaySpend } from "../../lib/queries.ts";
+import { agentStats, listMetrics, liveRates, todaySpend } from "../../lib/queries.ts";
 
 export const prerender = false;
 
@@ -16,6 +16,7 @@ export const GET: APIRoute = () => {
       today_spend: todaySpend(db, today),
       daily: listMetrics(db),
       agents: agentStats(db),
+      live: liveRates(db, Date.now()),
     }),
     { headers: { "content-type": "application/json", "cache-control": "no-store" } },
   );

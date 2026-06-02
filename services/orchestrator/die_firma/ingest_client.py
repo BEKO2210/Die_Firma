@@ -48,14 +48,20 @@ class IngestClient:
         if cost_usd:
             payload["cost_usd"] = cost_usd
 
-        resp = self._client.post(
-            f"{self._base}/api/ingest",
-            json=payload,
-            headers={"x-die-firma-token": self._token},
-        )
-        resp.raise_for_status()
-        body: dict[str, Any] = resp.json()
-        return int(body["id"])
+        # Telemetry is best-effort: a transient dashboard hiccup (e.g. a restart)
+        # must NEVER crash the pipeline mid-job. On any failure we return -1 and
+        # carry on — the filesystem (inbox/outbox/work) stays the source of truth.
+        try:
+            resp = self._client.post(
+                f"{self._base}/api/ingest",
+                json=payload,
+                headers={"x-die-firma-token": self._token},
+            )
+            resp.raise_for_status()
+            body: dict[str, Any] = resp.json()
+            return int(body["id"])
+        except (httpx.HTTPError, ValueError, KeyError):
+            return -1
 
     def metrics(self) -> dict[str, Any]:
         resp = self._client.get(f"{self._base}/api/metrics")
@@ -64,7 +70,12 @@ class IngestClient:
         return data
 
     def today_spend_usd(self) -> float:
-        return float(self.metrics()["today_spend"]["cost_usd"])
+        # Tolerant: if the dashboard is briefly unreachable, report 0 spend so the
+        # cost guard never blocks dispatch on a transient read failure.
+        try:
+            return float(self.metrics()["today_spend"]["cost_usd"])
+        except (httpx.HTTPError, ValueError, KeyError):
+            return 0.0
 
     def close(self) -> None:
         self._client.close()

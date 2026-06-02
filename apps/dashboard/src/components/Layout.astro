@@ -32,8 +32,18 @@ const { title = "Die Firma — Dashboard" } = Astro.props;
         --failed: #f85149;
         --cancelled: #6e7681;
         --awaiting_approval: #db6d28;
+        /* Per-agent identity colours so the monitor shows who's who at a glance. */
+        --agent-dispatcher: #58a6ff;
+        --agent-worker: #3fb950;
+        --agent-reviewer: #a371f7;
+        --agent-sentinel: #f0883e;
+        /* Extra accents for a richer, more modern surface. */
+        --accent-2: #a371f7;
+        --accent-3: #3fb950;
+        --glow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
       }
       * { box-sizing: border-box; }
+      html, body { height: 100%; }
       body {
         margin: 0;
         background: var(--bg);
@@ -41,64 +51,258 @@ const { title = "Die Firma — Dashboard" } = Astro.props;
         font-family: var(--mono);
         font-size: 13px;
         line-height: 1.45;
+        /* The page itself never grows or scrolls — only the inner regions do,
+           so the layout always fits one screen (terminal + metrics stay put). */
+        overflow: hidden;
       }
+
+      /* App shell: a fixed full-viewport grid — header / workspace / metrics bar.
+         The middle row (1fr) absorbs all remaining height; its children manage
+         their own scroll. */
+      .shell {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        height: 100vh;
+        height: 100dvh;
+      }
+
       header.app {
         display: flex;
         align-items: baseline;
         gap: 1rem;
-        padding: 0.6rem 1rem;
+        padding: 0.6rem 1.1rem;
         border-bottom: 1px solid var(--border);
-        background: var(--panel);
+        background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%);
       }
-      header.app h1 { font-size: 14px; margin: 0; letter-spacing: 0.04em; }
+      header.app h1 {
+        font-size: 15px; margin: 0; letter-spacing: 0.12em; font-weight: 700;
+        color: var(--fg); text-shadow: 0 0 12px rgba(88, 166, 255, 0.25);
+      }
       header.app .sub { color: var(--muted); font-size: 12px; }
-      header.app .conn { margin-left: auto; font-size: 12px; }
-      header.app .conn[data-state="live"] { color: var(--done); }
-      header.app .conn[data-state="polling"] { color: var(--planning); }
-      /* Desktop-first: use the full screen width. The form + Kanban span the
-         whole row; the monitor/terminal/metrics flow side-by-side into as many
-         columns as fit, so wide screens are filled instead of a centred strip. */
-      main {
-        padding: 1rem;
-        display: grid;
-        gap: 1rem;
-        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-        align-items: start;
+      header.app .conn {
+        margin-left: auto; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        padding: 0.2rem 0.6rem; border: 1px solid var(--border); border-radius: 999px;
       }
-      section.panel.full { grid-column: 1 / -1; }
+      header.app .conn::before {
+        content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted);
+      }
+      header.app .conn[data-state="live"] { color: var(--done); border-color: color-mix(in srgb, var(--done) 40%, var(--border)); }
+      header.app .conn[data-state="live"]::before { background: var(--done); box-shadow: 0 0 8px var(--done); animation: pulse 1.6s ease-in-out infinite; }
+      header.app .conn[data-state="polling"] { color: var(--planning); border-color: color-mix(in srgb, var(--planning) 40%, var(--border)); }
+      header.app .conn[data-state="polling"]::before { background: var(--planning); }
+      @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+      /* Two columns: a scrolling work stack (form + kanban + agents) on the left,
+         and the live terminal pinned full-height on the right. */
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) clamp(340px, 27vw, 460px);
+        gap: 1rem;
+        padding: 1rem;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        min-height: 0;
+        overflow-y: auto;
+        padding-right: 0.4rem;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+      }
+      .stack::-webkit-scrollbar { width: 8px; }
+      .stack::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+
       section.panel {
         background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 0.75rem;
+        border-radius: 8px;
+        padding: 0.85rem;
       }
       section.panel > h2 {
-        margin: 0 0 0.5rem;
-        font-size: 12px;
+        margin: 0 0 0.6rem;
+        font-size: 11px;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.1em;
         color: var(--muted);
       }
       .kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
       .col { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem; min-height: 80px; }
       .col h3 { margin: 0 0 0.5rem; font-size: 12px; display: flex; justify-content: space-between; }
       .col h3 .count { color: var(--muted); }
-      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 0.5rem; margin-bottom: 0.5rem; }
+      .card {
+        background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--sc, var(--queued));
+        border-radius: 5px; padding: 0.5rem; margin-bottom: 0.5rem;
+        transition: border-color 200ms ease, transform 120ms ease;
+      }
+      .card:hover { transform: translateX(2px); }
       .card .id { color: var(--muted); font-size: 11px; }
       .card .title { font-size: 13px; margin: 0.15rem 0; }
       .badge { display: inline-block; padding: 0 0.4rem; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); }
       .badge[data-status] { color: var(--bg); }
+      .card .approve {
+        margin-top: 0.4rem; background: var(--awaiting_approval); color: var(--bg);
+        border: 0; border-radius: 5px; padding: 0.3rem 0.7rem;
+        font-family: var(--mono); font-size: 12px; font-weight: 600; cursor: pointer;
+      }
+      .card .approve:disabled { opacity: 0.6; cursor: progress; }
       table { width: 100%; border-collapse: collapse; }
       th, td { text-align: left; padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--border); font-size: 12px; }
       th { color: var(--muted); font-weight: 600; }
-      .term { max-height: 320px; overflow: auto; background: #010409; border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem; }
-      .term .line { white-space: pre-wrap; word-break: break-word; }
+
+      /* Agent monitor: one colourful card per agent showing what it's doing now. */
+      .agents { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
+      .agent-card {
+        --c: var(--muted);
+        position: relative; background: var(--panel-2); border: 1px solid var(--border);
+        border-left: 3px solid var(--c); border-radius: 8px; padding: 0.55rem 0.65rem;
+        display: flex; flex-direction: column; gap: 0.3rem; overflow: hidden;
+        transition: border-color 200ms ease, box-shadow 200ms ease;
+      }
+      .agent-card[data-agent="dispatcher"] { --c: var(--agent-dispatcher); }
+      .agent-card[data-agent="worker"]     { --c: var(--agent-worker); }
+      .agent-card[data-agent="reviewer"]   { --c: var(--agent-reviewer); }
+      .agent-card[data-agent="sentinel"]   { --c: var(--agent-sentinel); }
+      .agent-card.busy { box-shadow: 0 0 0 1px var(--c), 0 0 14px -2px var(--c); }
+      .agent-head { display: flex; align-items: center; gap: 0.4rem; }
+      .agent-head .name { font-weight: 700; font-size: 12px; color: var(--fg); }
+      .agent-head .role { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+      .agent-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; }
+      .agent-card.busy .agent-dot { box-shadow: 0 0 8px var(--c); animation: pulse 1.4s ease-in-out infinite; }
+      .agent-state { margin-left: auto; font-size: 10px; padding: 0.05rem 0.4rem; border-radius: 999px;
+        border: 1px solid var(--c); color: var(--c); text-transform: uppercase; letter-spacing: 0.05em; }
+      .agent-action { font-size: 11px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.9; }
+      .agent-meta { display: flex; justify-content: space-between; gap: 0.5rem; color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+      .agent-bar { height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
+      .agent-bar > i { display: block; height: 100%; background: var(--c); border-radius: 999px; transition: width 300ms ease; }
+      .agents-legend { margin: 0.55rem 0 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
+      /* Terminal/Chat: full-height right column, tab bar fixed, body scrolls. */
+      .terminal-panel {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .rtabs { display: flex; gap: 0.4rem; margin-bottom: 0.6rem; }
+      .rtab {
+        flex: 1; background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
+        border-radius: 6px; padding: 0.4rem 0.6rem; font-family: var(--mono); font-size: 11px;
+        text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer;
+        display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+        transition: color 200ms ease, border-color 200ms ease, background-color 200ms ease;
+      }
+      .rtab:hover { color: var(--fg); }
+      .rtab.active { color: var(--fg); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); background: var(--panel); }
+      .rtab .pps { color: var(--accent); font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; }
+      .rview { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+      .rview.is-hidden { display: none; }
+      .sr-only {
+        position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+        overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+      }
+      .term {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        background: #010409;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.5rem 0.6rem;
+        font-size: 12px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+      }
+      .term::-webkit-scrollbar { width: 8px; }
+      .term::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+      .term .line { white-space: pre-wrap; word-break: break-word; padding: 1px 0; }
       .term .k { color: var(--accent); }
       .term .t { color: var(--muted); }
-      .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.5rem; }
-      .metric { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem; }
-      .metric .v { font-size: 18px; }
-      .metric .l { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+      /* Chat tab */
+      .chat-controls { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
+      .chat-controls select {
+        flex: 1; background: var(--panel-2); color: var(--fg); border: 1px solid var(--border);
+        border-radius: 5px; padding: 0.35rem 0.5rem; font-family: var(--mono); font-size: 12px;
+      }
+      .chat-controls .rag { display: flex; align-items: center; gap: 0.35rem; color: var(--muted); font-size: 11px; white-space: nowrap; }
+      .chat-log {
+        flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
+        gap: 0.5rem; padding: 0.25rem; scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+      }
+      .chat-log::-webkit-scrollbar { width: 8px; }
+      .chat-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+      .bubble {
+        max-width: 88%; padding: 0.5rem 0.7rem; border-radius: 10px; font-size: 12.5px;
+        white-space: pre-wrap; word-break: break-word; line-height: 1.5;
+      }
+      .bubble.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 22%, var(--panel-2)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); }
+      .bubble.assistant { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--border); }
+      .bubble .who { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 0.2rem; }
+      .bubble .src { display: block; margin-top: 0.35rem; font-size: 10px; color: var(--muted); }
+      .chat-empty { color: var(--muted); font-style: italic; margin: auto; text-align: center; }
+      #chat-form { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+      #chat-input {
+        flex: 1; resize: none; background: var(--panel-2); color: var(--fg); border: 1px solid var(--border);
+        border-radius: 6px; padding: 0.45rem 0.55rem; font-family: var(--mono); font-size: 12.5px;
+      }
+      #chat-input:focus { outline: none; border-color: var(--accent); }
+      #chat-send {
+        background: var(--accent); color: var(--bg); border: 0; border-radius: 6px; padding: 0 0.9rem;
+        font-family: var(--mono); font-size: 12px; font-weight: 600; cursor: pointer; align-self: stretch;
+      }
+      #chat-send:disabled { opacity: 0.5; cursor: progress; }
+
+      /* Live metrics strip — pinned to the bottom, one symmetric row of real,
+         continuously-updating rates (no static placeholder tiles). */
+      .metrics-bar {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 0.6rem;
+        padding: 0.7rem 1rem;
+        border-top: 1px solid var(--border);
+        background: linear-gradient(0deg, var(--panel) 0%, var(--bg) 100%);
+      }
+      .metric {
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.5rem 0.7rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        transition: border-color 200ms ease, background-color 200ms ease;
+      }
+      .metric.hot { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+      .metric .v { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .metric .v .u { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 0.2rem; }
+      .metric .l {
+        color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em;
+        display: flex; align-items: center; gap: 0.35rem;
+      }
+      .metric.live .l::before {
+        content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--done);
+        box-shadow: 0 0 6px var(--done);
+      }
+      .metric.live.idle .l::before { background: var(--muted); box-shadow: none; }
+
+      /* Stack to a single column on narrow screens; let the page scroll there. */
+      @media (max-width: 980px) {
+        body { overflow: auto; }
+        .shell { height: auto; min-height: 100vh; }
+        .workspace { grid-template-columns: 1fr; overflow: visible; }
+        .stack { overflow: visible; }
+        .terminal-panel { height: 60vh; }
+        .metrics-bar { grid-template-columns: repeat(3, 1fr); }
+      }
+      @media (max-width: 560px) {
+        .metrics-bar { grid-template-columns: repeat(2, 1fr); }
+        .kanban { grid-template-columns: repeat(2, 1fr); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      }
       .empty { color: var(--muted); font-style: italic; padding: 0.5rem; }
       a { color: var(--accent); }
       .new-job form { display: grid; gap: 0.6rem; }

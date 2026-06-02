@@ -25,7 +25,9 @@ def _make(stub_config, ingest, executor, *, notes=None):
 class FailingExecutor:
     mode = "mock"
 
-    def run(self, job: Job, subtask: Subtask, workdir: Path) -> ExecResult:
+    def run(
+        self, job: Job, subtask: Subtask, workdir: Path, attempt: int = 1, progress=None
+    ) -> ExecResult:
         workdir.mkdir(parents=True, exist_ok=True)
         return ExecResult(ok=False, output="boom")
 
