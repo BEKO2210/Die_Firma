@@ -295,6 +295,71 @@ def test_provision_session_without_template_still_sets_identity(tmp_path):
     assert not (tmp_path / ".claude").exists()
 
 
+def test_ollama_cache_replays_artifacts_without_calling_model(tmp_path):
+    from die_firma.cache import ResultCache
+
+    calls = {"n": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, json={"response": "<h1>hi</h1>", "eval_count": 5})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    cache = ResultCache(tmp_path / "cache")
+    ex = OllamaExecutor("http://localhost:11434", "m", client=client, cache=cache)
+    job = make_job(type="code_gen")
+    st = Subtask(id="j:implement", title="t", action="implement")
+
+    first = ex.run(job, st, tmp_path / "wd1")
+    assert first.ok and calls["n"] == 1
+    # Identical input in a fresh workdir -> served from cache, no second call.
+    second = ex.run(job, st, tmp_path / "wd2")
+    assert second.ok and calls["n"] == 1
+    assert "cache" in second.output
+    assert second.artifacts == first.artifacts
+
+
+def test_ollama_falls_back_to_secondary_model_on_timeout(tmp_path):
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        model = _json.loads(request.content)["model"]
+        seen.append(model)
+        if model == "primary":
+            raise httpx.ConnectTimeout("primary down")
+        return httpx.Response(200, json={"response": "ok", "eval_count": 3})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    ex = OllamaExecutor("http://localhost:11434", "primary", client=client, fallback_model="backup")
+    res = ex.run(make_job(), Subtask(id="s", title="t", action="implement"), tmp_path)
+    assert res.ok and res.model == "backup"
+    assert seen == ["primary", "backup"]
+
+
+def test_ollama_offline_fallback_emits_placeholder(tmp_path):
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("server down")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    ex = OllamaExecutor("http://localhost:11434", "m", client=client, offline_fallback=True)
+    res = ex.run(make_job(), Subtask(id="s", title="t", action="implement"), tmp_path)
+    assert res.ok and res.model == "offline-fallback"
+    assert "implement.md" in res.artifacts
+    assert "Platzhalter" in (tmp_path / "implement.md").read_text(encoding="utf-8")
+
+
+def test_ollama_reraises_when_no_fallback_configured(tmp_path):
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("server down")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    ex = OllamaExecutor("http://localhost:11434", "m", client=client)
+    with pytest.raises(httpx.ConnectError):
+        ex.run(make_job(), Subtask(id="s", title="t", action="implement"), tmp_path)
+
+
 def test_usage_from_stream():
     stream = (
         '{"type":"assistant","usage":{"input_tokens":10,"output_tokens":4}}\n'

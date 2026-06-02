@@ -56,6 +56,11 @@ class Config:
     ollama_models: dict[str, str]
     ollama_roles: dict[str, str]
     ollama_escalation_model: str
+    ollama_timeout: float
+    ollama_fallback_model: str
+    offline_fallback: bool
+    cache_enabled: bool
+    cache_dir: Path
     quality_enabled: bool
     quality_min_score: int
     quality_max_refine_passes: int
@@ -84,6 +89,7 @@ def load_config(start: Path | None = None) -> Config:
     retry_raw = raw["retry"]
     ollama_raw = raw.get("ollama", {})
     quality_raw = raw.get("quality", {})
+    cache_raw = raw.get("cache", {})
 
     def p(name: str) -> Path:
         return (root / str(general[name])).resolve()
@@ -116,6 +122,15 @@ def load_config(start: Path | None = None) -> Config:
         # Per-role overrides from [ollama.roles] + the retry escalation model.
         ollama_roles={str(k): str(v) for k, v in dict(ollama_raw.get("roles", {})).items()},
         ollama_escalation_model=str(ollama_raw.get("escalation_model", "deepseek-r1:14b")),
+        # Per-request timeout + offline resilience (review §4).
+        ollama_timeout=float(
+            os.environ.get("DIE_FIRMA_OLLAMA_TIMEOUT", ollama_raw.get("timeout_seconds", 600.0))
+        ),
+        ollama_fallback_model=str(ollama_raw.get("fallback_model", "")),
+        offline_fallback=bool(ollama_raw.get("offline_fallback", False)),
+        # Result cache (review §3) — content-addressed under state/.
+        cache_enabled=bool(cache_raw.get("enabled", True)),
+        cache_dir=(root / str(cache_raw.get("dir", "state/cache"))).resolve(),
         quality_enabled=bool(quality_raw.get("enabled", True)),
         quality_min_score=int(quality_raw.get("min_score", 75)),
         quality_max_refine_passes=int(quality_raw.get("max_refine_passes", 2)),

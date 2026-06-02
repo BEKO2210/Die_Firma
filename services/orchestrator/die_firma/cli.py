@@ -13,6 +13,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from .cache import ResultCache
 from .config import Config, load_config
 from .dispatcher import Dispatcher
 from .executor import make_executor
@@ -42,6 +43,10 @@ def _build(cfg: Config) -> tuple[Orchestrator, IngestClient]:
         ollama_models=cfg.ollama_models,
         ollama_roles=cfg.ollama_roles,
         ollama_escalation_model=cfg.ollama_escalation_model,
+        ollama_timeout=cfg.ollama_timeout,
+        ollama_fallback_model=cfg.ollama_fallback_model,
+        offline_fallback=cfg.offline_fallback,
+        cache=ResultCache(cfg.cache_dir, enabled=cfg.cache_enabled),
     )
     sentinel = Sentinel(cfg.retry, ingest)
     orch = Orchestrator(cfg, ingest, executor, Dispatcher(), sentinel)

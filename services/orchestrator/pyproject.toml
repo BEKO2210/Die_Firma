@@ -22,6 +22,13 @@ dev = [
   "pytest-cov",
   "types-PyYAML",
 ]
+# Mutation testing (review §7): verifies the *tests* actually catch logic bugs,
+# not just that lines are executed. Optional + non-blocking — run via
+# `scripts/mutation.sh` or `mutmut run`. Kept out of `dev` so the default CI
+# install stays lean.
+mutation = [
+  "mutmut>=2.5",
+]
 
 [project.scripts]
 die-firma = "die_firma.cli:main"
@@ -61,3 +68,10 @@ omit = ["die_firma/llm.py"]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]
+
+[tool.mutmut]
+# Mutate the pure, logic-heavy core; the tests must kill the mutants. The live
+# SDK wrapper and CLI glue are excluded (exercised only end-to-end).
+paths_to_mutate = "die_firma/"
+tests_dir = "tests/"
+runner = "python -m pytest -x -q --no-cov"

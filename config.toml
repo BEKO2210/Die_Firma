@@ -42,6 +42,17 @@ model = "qwen3-coder:30b"
 # On a retry the router escalates here — a reasoning model gets a second,
 # stronger attempt after the first model already failed ("Route-to-Reason").
 escalation_model = "deepseek-r1:14b"
+# Per-request timeout for a single model call (seconds). A hung/slow model
+# aborts here instead of blocking a worker forever (review §4). Override with
+# DIE_FIRMA_OLLAMA_TIMEOUT.
+timeout_seconds = 600.0
+# On a timeout/connection error the worker retries ONCE with this smaller,
+# faster model before giving up. Empty string disables the fallback hop.
+fallback_model = ""
+# Last resort when even the fallback is unreachable: emit a clearly-marked
+# heuristic placeholder so the pipeline keeps flowing offline instead of
+# hard-failing the job. Off by default (a hard failure is usually what you want).
+offline_fallback = false
 
 # Best installed model per task type — the worker always uses the model that
 # fits the topic. Edit freely to any model you've pulled (`ollama list`).
@@ -64,6 +75,14 @@ review  = "qwen3-coder:30b"
 reason  = "deepseek-r1:14b"
 general = "qwen3-coder:30b"
 vision  = "llava:7b"
+
+[cache]
+# Result cache (review §3): replay artifacts when the exact same sub-task input
+# recurs (re-run, duplicated step, unchanged dependency) instead of re-calling
+# the model. Content-addressed (SHA-256 of type+task+action+model+context).
+enabled = true
+# Cache location, relative to the repo root.
+dir = "state/cache"
 
 [concurrency]
 # Semaphore: max parallel tasks. Locked start value = 2 (prompt §1).
