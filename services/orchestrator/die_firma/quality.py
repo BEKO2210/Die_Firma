@@ -142,6 +142,8 @@ def render_screenshot(html_path: Path, out_png: Path, width: int = 1280, height:
     """Render the page headless and screenshot it. Returns False (never raises)
     if Playwright/the browser is unavailable so the gate degrades gracefully."""
     try:
+        # Optional dep — absent in CI and possibly at runtime; the ImportError
+        # path keeps the gate working. (mypy: see [[tool.mypy.overrides]].)
         from playwright.sync_api import sync_playwright
     except ImportError:
         return False
