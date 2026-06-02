@@ -44,7 +44,10 @@ def test_quality_gate_critique_refine_recritique(tmp_path, monkeypatch):
     cfg.runlog.mkdir(parents=True, exist_ok=True)
     ingest = FakeIngest()
     orch = Orchestrator(
-        cfg, ingest, _OllamaExec(), Dispatcher(),
+        cfg,
+        ingest,
+        _OllamaExec(),
+        Dispatcher(),
         Sentinel(RetryPolicy(1, (0.0,)), ingest, sleep=lambda _s: None),  # type: ignore[arg-type]
     )
 
@@ -53,7 +56,8 @@ def test_quality_gate_critique_refine_recritique(tmp_path, monkeypatch):
     (wd / "index.html").write_text("<html>old</html>", encoding="utf-8")
 
     monkeypatch.setattr(
-        oc, "OllamaClient",
+        oc,
+        "OllamaClient",
         lambda *a, **k: types.SimpleNamespace(has_model=lambda m: False, close=lambda: None),
     )
 
@@ -91,7 +95,10 @@ def test_quality_gate_disabled_is_noop(tmp_path):
     cfg.runlog.mkdir(parents=True, exist_ok=True)
     ingest = FakeIngest()
     orch = Orchestrator(
-        cfg, ingest, _OllamaExec(), Dispatcher(),
+        cfg,
+        ingest,
+        _OllamaExec(),
+        Dispatcher(),
         Sentinel(RetryPolicy(1, (0.0,)), ingest, sleep=lambda _s: None),  # type: ignore[arg-type]
     )
     wd = tmp_path / "wd"

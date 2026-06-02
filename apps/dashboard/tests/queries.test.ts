@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type Database from "better-sqlite3";
 import { createDb } from "../src/lib/db.ts";
 import { applyEvent } from "../src/lib/project.ts";
-import { agentStats, listEvents, listMetrics, listSubtasks, listTasks, todaySpend } from "../src/lib/queries.ts";
+import { agentStats, listEvents, listMetrics, liveRates, listSubtasks, listTasks, todaySpend } from "../src/lib/queries.ts";
 import type { IngestEvent } from "../src/lib/types.ts";
 
 const TS = "2026-06-01T12:00:00.000Z";
@@ -54,5 +54,22 @@ describe("read queries", () => {
     expect(byName.get("dispatcher")).toMatchObject({ tasks: 1, active: 0, tokens_in: 0 });
     // worker's tokens are attributed to the worker; task is terminal -> not active.
     expect(byName.get("worker")).toMatchObject({ tasks: 1, active: 0, tokens_in: 10, tokens_out: 5 });
+  });
+
+  it("computes live throughput inside the window and decays to zero outside it", () => {
+    applyEvent(db, ev({ kind: "task_created", task_id: "t1", status: "running" }));
+    applyEvent(db, ev({ kind: "tool_call_end", task_id: "t1", agent: "worker", tokens_in: 30, tokens_out: 90 }));
+
+    // 10s after the events -> within a 60s window.
+    const live = liveRates(db, Date.parse(TS) + 10_000, 60);
+    expect(live.tokens_per_sec).toBeCloseTo(120 / 60);
+    expect(live.tokens_out_per_sec).toBeCloseTo(90 / 60);
+    expect(live.active_tasks).toBe(1);
+    expect(live.idle_sec).toBeGreaterThanOrEqual(0);
+
+    // 2min later -> events fall out of the window, every rate is 0.
+    const stale = liveRates(db, Date.parse(TS) + 120_000, 60);
+    expect(stale.tokens_per_sec).toBe(0);
+    expect(stale.events_per_sec).toBe(0);
   });
 });

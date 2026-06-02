@@ -366,8 +366,8 @@ class Orchestrator:
         max_passes = int(getattr(cfg, "quality_max_refine_passes", 2))
         web = is_frontend(job, files)
         vision_model = router.vision_model()
-        visual_ok = web and bool(getattr(cfg, "quality_visual", True)) and client.has_model(
-            vision_model
+        visual_ok = (
+            web and bool(getattr(cfg, "quality_visual", True)) and client.has_model(vision_model)
         )
 
         self._ingest.emit("status_changed", task_id=job.id, agent="reviewer", status="review")

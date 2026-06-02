@@ -96,7 +96,8 @@ class OllamaClient:
             payload["options"] = options
         resp = self._client.post(f"{self._url}/api/generate", json=payload)
         resp.raise_for_status()
-        return resp.json()
+        data: dict[str, Any] = resp.json()
+        return data
 
     # -- convenience -----------------------------------------------------
     def generate_text(

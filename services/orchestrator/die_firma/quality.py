@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .executor import _FILE_PROTOCOL, _parse_files, _read_workdir
 from .models import Job
@@ -40,6 +41,7 @@ def html_entrypoint(workdir: Path) -> Path | None:
 
 
 # --- critique data ------------------------------------------------------
+
 
 @dataclass
 class Finding:
@@ -65,7 +67,7 @@ class Critique:
         return [f for f in self.findings if order.get(f.severity, 1) >= floor]
 
 
-def _findings_from(obj: dict) -> list[Finding]:
+def _findings_from(obj: dict[str, Any]) -> list[Finding]:
     out: list[Finding] = []
     for f in obj.get("findings", []) or []:
         if isinstance(f, dict):
@@ -81,7 +83,9 @@ def _findings_from(obj: dict) -> list[Finding]:
     return [f for f in out if f.issue]
 
 
-def _critique_from_json(obj: dict, model: str, source: str, tin: int, tout: int) -> Critique:
+def _critique_from_json(
+    obj: dict[str, Any], model: str, source: str, tin: int, tout: int
+) -> Critique:
     score = int(obj.get("score", 0) or 0)
     findings = _findings_from(obj)
     # Never accept a deliverable that still has a HIGH-severity finding, even if
@@ -133,6 +137,7 @@ def critique_text(client: OllamaClient, model: str, job: Job, files: dict[str, s
 
 # --- visual critique (VLM) ---------------------------------------------
 
+
 def render_screenshot(html_path: Path, out_png: Path, width: int = 1280, height: int = 900) -> bool:
     """Render the page headless and screenshot it. Returns False (never raises)
     if Playwright/the browser is unavailable so the gate degrades gracefully."""
@@ -172,11 +177,14 @@ def critique_visual(client: OllamaClient, vision_model: str, job: Job, png: Path
     try:
         obj, tin, tout = client.generate_json(vision_model, prompt, images=[encode_image(png)])
     except Exception:  # noqa: BLE001
-        return Critique(True, 75, "visual critique unavailable", model=vision_model, source="visual")
+        return Critique(
+            True, 75, "visual critique unavailable", model=vision_model, source="visual"
+        )
     return _critique_from_json(obj, vision_model, "visual", tin, tout)
 
 
 # --- refine -------------------------------------------------------------
+
 
 def refine(
     client: OllamaClient,

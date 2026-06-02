@@ -24,6 +24,7 @@ def _job(body: str) -> Job:
 
 # -- design.py -----------------------------------------------------------
 
+
 def test_wants_web_and_is_frontend():
     assert wants_web(_job("Build a Webseite for a farm"))
     assert wants_web(_job("plain"), ("index.html",))
@@ -39,6 +40,7 @@ def test_design_system_prompt_has_key_rules():
 
 
 # -- critique parsing ----------------------------------------------------
+
 
 class _FakeClient:
     def __init__(self, json_obj=None, text=""):
@@ -74,9 +76,14 @@ def test_critique_text_parses_findings_and_pass():
 
 
 def test_critique_text_passes_without_high_findings():
-    obj = {"score": 90, "pass": True, "summary": "ok", "findings": [
-        {"severity": "medium", "issue": "tighten spacing"},
-    ]}
+    obj = {
+        "score": 90,
+        "pass": True,
+        "summary": "ok",
+        "findings": [
+            {"severity": "medium", "issue": "tighten spacing"},
+        ],
+    }
     crit = Q.critique_text(_FakeClient(obj), "m", _job("x"), {"index.html": "<html>"})
     assert crit.passed and crit.score == 90
 
@@ -108,6 +115,7 @@ def test_critique_visual_reads_image(tmp_path):
 
 
 # -- workdir helpers + renderer -----------------------------------------
+
 
 def test_produced_files_and_html_entrypoint(tmp_path):
     (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
