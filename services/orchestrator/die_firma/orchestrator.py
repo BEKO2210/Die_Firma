@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from . import scheduling
 from .cost import evaluate
 from .dag import validate_dag
 from .delivery import deliver
@@ -215,6 +216,21 @@ class Orchestrator:
             log.append(f"failed review: {result.detail}")
             return JobOutcome("failed", result.detail)
 
+        # -- plugin validation (task-type-specific acceptance gate) ------
+        # The job's task plugin may enforce extra acceptance criteria beyond the
+        # verify command (review §1). A failure here fails the job like a review.
+        validation = self._dispatcher.validate(job, workdir)
+        if not validation.passed:
+            self._ingest.emit(
+                "status_changed",
+                task_id=job.id,
+                agent="reviewer",
+                status="failed",
+                message=f"plugin validation failed: {validation.detail}"[:500],
+            )
+            log.append(f"failed plugin validation: {validation.detail}")
+            return JobOutcome("failed", validation.detail)
+
         # -- quality gate (real review: critique + refine) ---------------
         # The verify command is a hard pass/fail gate; this is the content
         # review the old pipeline lacked — a reviewer model (and, for web
@@ -243,21 +259,43 @@ class Orchestrator:
         return JobOutcome("done")
 
     # -- sub-task scheduling --------------------------------------------
+    def _worker_count(self, log: RunLog) -> int:
+        """Parallelism for this job: the configured semaphore size, or — when
+        [concurrency].adaptive is on — a count sized to the current machine
+        (CPU load + free VRAM), bounded by the ceiling (review §2)."""
+        baseline = max(1, self._cfg.max_parallel)
+        if not getattr(self._cfg, "adaptive_parallel", False):
+            return baseline
+        cpu_count, load1 = scheduling.cpu_load()
+        count = scheduling.adaptive_worker_count(
+            baseline,
+            cpu_count=cpu_count,
+            load1=load1,
+            min_workers=int(getattr(self._cfg, "min_parallel", 1)),
+            ceiling=int(getattr(self._cfg, "adaptive_ceiling", baseline)),
+            vram_free_mb=scheduling.free_vram_mb(),
+            vram_per_worker_mb=int(getattr(self._cfg, "vram_per_worker_mb", 0)),
+        )
+        if count != baseline:
+            log.append(f"adaptive parallelism: {count} workers (cpu={cpu_count} load1={load1:.2f})")
+        return count
+
     def _run_subtasks(
         self, job: Job, plan: Plan, workdir: Path, log: RunLog
     ) -> dict[str, ExecResult]:
         by_id = {s.id: s for s in plan.subtasks}
         done: set[str] = set()
         results: dict[str, ExecResult] = {}
-        with ThreadPoolExecutor(max_workers=max(1, self._cfg.max_parallel)) as pool:
+        workers = self._worker_count(log)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
             while len(done) < len(by_id):
                 ready = [
                     s
                     for s in plan.subtasks
                     if s.id not in done and all(d in done for d in s.depends_on)
                 ]
-                # Bound parallelism to the configured semaphore size.
-                batch = ready[: max(1, self._cfg.max_parallel)]
+                # Bound parallelism to the (possibly adaptive) worker count.
+                batch = ready[:workers]
                 futures = {pool.submit(self._run_one, job, s, workdir): s for s in batch}
                 for fut, st in futures.items():
                     results[st.id] = fut.result()  # raises RetryExhausted on terminal failure

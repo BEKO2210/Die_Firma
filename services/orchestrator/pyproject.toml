@@ -4,15 +4,32 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "die-firma-orchestrator"
-version = "0.1.0"
+version = "0.2.0"
 description = "Die Firma — autonomous agency orchestrator (Python side)"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Die Firma" }]
+keywords = ["llm", "agents", "orchestrator", "ollama", "automation"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Topic :: Software Development :: Build Tools",
+]
 dependencies = [
   "pydantic>=2.13.4",
   "httpx>=0.28.1",
   "anthropic>=0.105.2",
   "pyyaml>=6.0.3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/beko2210/die_firma"
+Repository = "https://github.com/beko2210/die_firma"
+Changelog = "https://github.com/beko2210/die_firma/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
@@ -22,12 +39,23 @@ dev = [
   "pytest-cov",
   "types-PyYAML",
 ]
+# Mutation testing (review §7): verifies the *tests* actually catch logic bugs,
+# not just that lines are executed. Optional + non-blocking — run via
+# `scripts/mutation.sh` or `mutmut run`. Kept out of `dev` so the default CI
+# install stays lean.
+mutation = [
+  "mutmut>=2.5",
+]
 
 [project.scripts]
 die-firma = "die_firma.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["die_firma*"]
+
+[tool.setuptools.package-data]
+# Ship the i18n catalogues with the package (review §5).
+die_firma = ["locales/*.json"]
 
 [tool.ruff]
 line-length = 100
@@ -61,3 +89,10 @@ omit = ["die_firma/llm.py"]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]
+
+[tool.mutmut]
+# Mutate the pure, logic-heavy core; the tests must kill the mutants. The live
+# SDK wrapper and CLI glue are excluded (exercised only end-to-end).
+paths_to_mutate = "die_firma/"
+tests_dir = "tests/"
+runner = "python -m pytest -x -q --no-cov"

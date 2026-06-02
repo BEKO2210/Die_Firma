@@ -25,6 +25,17 @@ export function listTasks(db: DB): TaskRow[] {
   return db.prepare("SELECT * FROM tasks ORDER BY priority ASC, created_at ASC").all() as TaskRow[];
 }
 
+/** Count of tasks grouped by status (NULL status bucketed as "unknown").
+ * Used by the Prometheus exporter for a `die_firma_tasks{status=...}` gauge. */
+export function statusCounts(db: DB): Record<string, number> {
+  const rows = db
+    .prepare("SELECT COALESCE(status, 'unknown') AS status, COUNT(*) AS c FROM tasks GROUP BY status")
+    .all() as { status: string; c: number }[];
+  const out: Record<string, number> = {};
+  for (const r of rows) out[r.status] = r.c;
+  return out;
+}
+
 export function listSubtasks(db: DB, taskId: string): SubtaskRow[] {
   return db
     .prepare("SELECT * FROM subtasks WHERE task_id = ? ORDER BY created_at ASC")

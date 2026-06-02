@@ -1,8 +1,10 @@
 {
   "name": "@die-firma/dashboard",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
+  "description": "Die Firma — read-only Astro/Node dashboard (the SQLite write authority).",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

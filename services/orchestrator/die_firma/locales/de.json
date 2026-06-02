@@ -1,0 +1,9 @@
+{
+  "cli.submitted": "eingereicht {id} ({type}) -> {dest}",
+  "cli.created": "erstellt {id} ({type}) -> {dest}",
+  "cli.approved": "freigegeben {id}",
+  "cli.no_tasks": "(keine Tasks)",
+  "cli.reset": "Orchestrator-Status zurückgesetzt (processed/approved, work/outbox/runlog)",
+  "cli.watching": "beobachte {inbox} (Abfrage {interval}s, Executor={executor})",
+  "cli.job_status": "{id}: {status}"
+}

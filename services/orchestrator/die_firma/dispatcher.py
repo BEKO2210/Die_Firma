@@ -1,60 +1,54 @@
 """Dispatcher: decompose a job into a shallow DAG of atomic sub-tasks.
 
-Deterministic rule-based decomposition is the default and the guaranteed
-fallback if the LLM dispatcher fails (prompt §1: "deterministic rule fallback,
-if the dispatcher fails"). Every plan is validated to be a DAG ≤2 levels deep.
+Decomposition is delegated to a task plugin (see plugins.py) — the built-in
+task types are themselves plugins. Deterministic rule-based decomposition is the
+default and the guaranteed fallback if a plugin or the LLM dispatcher fails
+(prompt §1: "deterministic rule fallback, if the dispatcher fails"). Every plan
+is validated to be a DAG ≤2 levels deep.
 """
 
 from __future__ import annotations
 
-from .dag import validate_dag
-from .models import Job, Plan, Subtask
+from pathlib import Path
 
-# One small, fixed decomposition per job type. Each stays within 2 levels.
-_RULES: dict[str, list[tuple[str, str, list[str]]]] = {
-    "code_gen": [
-        ("implement", "Implement the requested change", []),
-        ("self_review", "Self-review and prepare the deliverable", ["implement"]),
-    ],
-    "code_review": [
-        ("analyze", "Analyze the target and produce a review report", []),
-    ],
-    "automation": [
-        ("build_script", "Build the automation script", []),
-        ("smoke", "Smoke-test the script", ["build_script"]),
-    ],
-    "data_prep": [
-        ("ingest", "Ingest and validate the input data", []),
-        ("transform", "Transform into the requested deliverable", ["ingest"]),
-    ],
-}
+from .models import Job, Plan
+from .plugins import (
+    BUILTIN_RULES,
+    PluginRegistry,
+    ValidationResult,
+    build_plan,
+    default_registry,
+)
 
 
 def decompose_rule_based(job: Job) -> Plan:
-    """Deterministic decomposition. Sub-task ids are namespaced by job id."""
-    rule = _RULES[job.type]
-    subtasks = [
-        Subtask(
-            id=f"{job.id}:{action}",
-            title=title,
-            action=action,
-            depends_on=[f"{job.id}:{d}" for d in deps],
-        )
-        for (action, title, deps) in rule
-    ]
-    plan = Plan(subtasks=subtasks)
-    validate_dag(plan.graph())  # guard: never emit an invalid/too-deep plan
-    return plan
+    """Deterministic decomposition from the built-in rules. Sub-task ids are
+    namespaced by job id. Kept as the always-available safe fallback."""
+    return build_plan(job, BUILTIN_RULES[job.type])
 
 
 class Dispatcher:
-    """Wraps decomposition. In mock mode (or without a key) it is purely
-    rule-based; an LLM-backed path can be layered on for richer planning."""
+    """Wraps decomposition. Consults the plugin registry for the job's task type
+    and falls back to the built-in rule-based decomposition if no plugin handles
+    it. In mock mode (or without a key) it is purely rule-based; an LLM-backed
+    path can be layered on for richer planning."""
 
-    def __init__(self, use_llm: bool = False) -> None:
+    def __init__(self, use_llm: bool = False, registry: PluginRegistry | None = None) -> None:
         self._use_llm = use_llm
+        self._registry = registry or default_registry()
 
     def plan(self, job: Job) -> Plan:
         # The LLM path is intentionally not used in the keyless mock pipeline;
-        # rule-based decomposition is always the safe, validated fallback.
+        # a registered plugin (or the rule-based fallback) is the safe default.
+        plugin = self._registry.get(job.type)
+        if plugin is not None:
+            return plugin.decompose(job)
         return decompose_rule_based(job)
+
+    def validate(self, job: Job, workdir: Path) -> ValidationResult:
+        """Run the task plugin's extra acceptance check (review §1). Unknown
+        types and plugins without a validator pass by default."""
+        plugin = self._registry.get(job.type)
+        if plugin is None:
+            return ValidationResult(True, "no plugin")
+        return plugin.validate(job, workdir)

@@ -13,6 +13,9 @@ runlog_dir  = "runlog"
 state_dir   = "state"
 # How often the watcher polls inbox/ for new *.md drops (seconds).
 poll_interval_seconds = 2.0
+# UI/CLI language (review §5): "en" or "de" (catalogues in die_firma/locales/
+# and apps/dashboard/src/lib/i18n.ts). Override with DIE_FIRMA_LANG.
+language = "en"
 
 [dashboard]
 # Read-model + ingest live here. Loopback only (prompt §7).
@@ -42,6 +45,17 @@ model = "qwen3-coder:30b"
 # On a retry the router escalates here — a reasoning model gets a second,
 # stronger attempt after the first model already failed ("Route-to-Reason").
 escalation_model = "deepseek-r1:14b"
+# Per-request timeout for a single model call (seconds). A hung/slow model
+# aborts here instead of blocking a worker forever (review §4). Override with
+# DIE_FIRMA_OLLAMA_TIMEOUT.
+timeout_seconds = 600.0
+# On a timeout/connection error the worker retries ONCE with this smaller,
+# faster model before giving up. Empty string disables the fallback hop.
+fallback_model = ""
+# Last resort when even the fallback is unreachable: emit a clearly-marked
+# heuristic placeholder so the pipeline keeps flowing offline instead of
+# hard-failing the job. Off by default (a hard failure is usually what you want).
+offline_fallback = false
 
 # Best installed model per task type — the worker always uses the model that
 # fits the topic. Edit freely to any model you've pulled (`ollama list`).
@@ -65,9 +79,37 @@ reason  = "deepseek-r1:14b"
 general = "qwen3-coder:30b"
 vision  = "llava:7b"
 
+[cache]
+# Result cache (review §3): replay artifacts when the exact same sub-task input
+# recurs (re-run, duplicated step, unchanged dependency) instead of re-calling
+# the model. Content-addressed (SHA-256 of type+task+action+model+context).
+enabled = true
+# Cache location, relative to the repo root.
+dir = "state/cache"
+
+[plugins]
+# Task plugin discovery (review §1): every *.py in this directory is imported at
+# startup and may register a TaskPlugin (custom decomposition + an extra
+# acceptance validator) — extend behaviour without touching the core. See
+# tasks/README.md. Relative to the repo root.
+dir = "tasks"
+
 [concurrency]
 # Semaphore: max parallel tasks. Locked start value = 2 (prompt §1).
 max_parallel_tasks = 2
+# Adaptive parallelism (review §2): when true, size the worker pool to the
+# current machine instead of a fixed semaphore — back off under CPU load / tight
+# VRAM, scale up (to adaptive_ceiling) when idle. Off by default to preserve the
+# locked, deterministic baseline.
+adaptive = false
+# Never drop below this many workers.
+min_parallel = 1
+# Hard upper bound when scaling up. Defaults to max_parallel_tasks, so adaptive
+# only *reduces* until you raise this to use more of the box.
+adaptive_ceiling = 2
+# Approx VRAM a single worker's model needs (MiB). >0 caps concurrency so the
+# running workers fit in free VRAM (read via nvidia-smi). 0 disables the cap.
+vram_per_worker_mb = 0
 
 [retry]
 # Sentinel retry policy: 3 attempts, exponential backoff (prompt §1).

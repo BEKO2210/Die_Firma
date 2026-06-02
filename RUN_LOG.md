@@ -133,3 +133,36 @@ Verified the Ollama path end-to-end against a stub Ollama server: job → local
 model → status `done`, tokens counted (256), cost $0.0000, deliverables in
 `outbox/`. Mock E2E still green. A real Ollama server is the only thing a user
 must install for live local runs.
+
+## Run 7 — 2026-06-02 — Review follow-up: extensibility, resilience, operability
+
+**Goal:** Act on the project review's "next quality level" recommendations
+(all 10 points), without breaking the locked one-way dataflow or green gates.
+
+**Steps:**
+- §1 Task plugins: `plugins.py` (TaskPlugin protocol, registry, directory
+  discovery); dispatcher delegates decomposition + a new validation gate;
+  `tasks/` extension point + example plugin.
+- §2 Adaptive parallelism: `scheduling.py` (worker count from CPU load / free
+  VRAM; job ordering by priority+deadline); wired into orchestrator + CLI.
+- §3 Result cache: `cache.py` content-addressed artifact replay in OllamaExecutor.
+- §4 LLM timeouts/fallback: per-request timeout, fallback model, `fallback.py`
+  offline heuristic placeholder.
+- §5 i18n: `i18n.py` + `locales/{en,de}.json` (CLI); `src/lib/i18n.ts` (dashboard,
+  client catalogue via bootstrap).
+- §6 Observability: `/api/metrics-prom` Prometheus exporter + `prometheus.ts`;
+  Grafana dashboard, scrape config, OTel recipe in `docs/observability/`.
+- §7 Mutation+chaos: mutmut/Stryker config, `scripts/mutation.sh`, `test_chaos.py`.
+- §8 UI: light/dark theme toggle (persisted, no flash), focus-visible styles.
+- §9 RAG: query expansion + context condensing in `rag.ts`; `vectorstore.ts` seam.
+- §10 Packaging: pip/npm metadata, Dockerfiles + `docker-compose.yml`,
+  `CHANGELOG.md`, `scripts/check-updates.sh`, `docs/deployment.md`.
+
+**Result:** ruff + ruff format + mypy --strict clean; pytest **175 passing @
+91.7%**; dashboard **67 vitest @ 100%** on gated libs, astro typecheck 0 errors,
+build clean; mock E2E green end-to-end. New pure logic (cache, scheduling,
+plugins, i18n, prometheus, vectorstore) unit-tested; wheel builds with locales.
+
+**Open items:** real-host validation of adaptive VRAM (nvidia-smi), a live
+Prometheus/Grafana scrape, and the Docker images on a real engine — all
+documented, not CI-verified.

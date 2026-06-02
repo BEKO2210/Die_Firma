@@ -23,8 +23,14 @@ from typing import Protocol
 
 import httpx
 
+from .cache import ResultCache, subtask_cache_key
+from .fallback import heuristic_artifact
 from .models import Job, Subtask
 from .router import Router
+
+# Errors that mean "the model/server was unreachable or too slow" — these drive
+# the fallback-model retry and, ultimately, the offline heuristic.
+_OLLAMA_UNREACHABLE = (httpx.TimeoutException, httpx.TransportError)
 
 # Called during generation with (tokens_in_delta, tokens_out_delta) so the
 # orchestrator can stream live token telemetry instead of one event per call.
@@ -103,6 +109,10 @@ def make_executor(
     ollama_models: dict[str, str] | None = None,
     ollama_roles: dict[str, str] | None = None,
     ollama_escalation_model: str = "deepseek-r1:14b",
+    ollama_timeout: float = 600.0,
+    ollama_fallback_model: str = "",
+    offline_fallback: bool = False,
+    cache: ResultCache | None = None,
 ) -> Executor:
     """Factory selecting the executor from config.toml's [executor].mode."""
     if mode == "mock":
@@ -114,7 +124,16 @@ def make_executor(
             default_model=ollama_model,
             escalation_model=ollama_escalation_model,
         )
-        return OllamaExecutor(ollama_url, ollama_model, models=ollama_models, router=router)
+        return OllamaExecutor(
+            ollama_url,
+            ollama_model,
+            models=ollama_models,
+            router=router,
+            timeout=ollama_timeout,
+            fallback_model=ollama_fallback_model,
+            offline_fallback=offline_fallback,
+            cache=cache,
+        )
     if mode == "claude_code":
         return ClaudeCodeExecutor(
             firejail_bin,
@@ -499,12 +518,24 @@ class OllamaExecutor:
         *,
         models: dict[str, str] | None = None,
         router: Router | None = None,
+        fallback_model: str = "",
+        offline_fallback: bool = False,
+        cache: ResultCache | None = None,
     ) -> None:
         self._url = url.rstrip("/")
         self._default_model = model
         self._models = dict(models or {})
+        # A configurable per-request timeout (review §4): a hung model no longer
+        # blocks a worker forever — the call aborts and the fallback path runs.
         self._client = client or httpx.Client(timeout=timeout)
         self._router = router or Router(per_type=self._models, default_model=model)
+        # On a timeout/connection error, try this smaller/cheaper model once
+        # before giving up; "" disables the fallback-model hop.
+        self._fallback_model = fallback_model
+        # When even the fallback is unreachable, emit a heuristic placeholder so
+        # the pipeline keeps flowing offline instead of hard-failing the job.
+        self._offline_fallback = offline_fallback
+        self._cache = cache
 
     def model_for(self, job: Job, subtask: Subtask | None = None, attempt: int = 1) -> str:
         """Best available model for this step (routes by role + escalation)."""
@@ -524,22 +555,79 @@ class OllamaExecutor:
         model = self.model_for(job, subtask, attempt)
         context = _read_workdir(workdir)
         prompt = _worker_prompt(job, subtask, context)
-        text, tin, tout = self._generate(model, prompt, progress)
+
+        # -- result cache (review §3): replay artifacts for an identical input --
+        key = ""
+        if self._cache is not None and self._cache.enabled:
+            key = subtask_cache_key(
+                job_type=job.type,
+                task_text=_clean_task(job),
+                action=subtask.action,
+                model=model,
+                context=context,
+            )
+            hit = self._cache.get(key)
+            if hit is not None:
+                self._write_files(hit.artifacts, workdir)
+                return ExecResult(
+                    ok=True,
+                    output=f"[cache] {subtask.action} for {subtask.id}",
+                    model=hit.model or model,
+                    artifacts=hit.artifacts,
+                )
+
+        try:
+            text, tin, tout, used_model = self._generate_with_fallback(model, prompt, progress)
+        except _OLLAMA_UNREACHABLE as exc:
+            if not self._offline_fallback:
+                raise
+            # Offline path: emit an honest placeholder so the job keeps flowing.
+            files = heuristic_artifact(job, subtask, reason=type(exc).__name__)
+            self._write_files(files, workdir)
+            return ExecResult(
+                ok=True,
+                output=f"[offline] {subtask.action} for {subtask.id}",
+                model="offline-fallback",
+                artifacts=files,
+            )
+
         # Write the deliverable as REAL files (with sub-folders), not one .md blob.
         files = _parse_files(text) or _fallback_file(text, subtask)
-        for rel, content in files.items():
-            dest = workdir / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(content, encoding="utf-8")
+        self._write_files(files, workdir)
+        ok = bool(text.strip()) and bool(files)
+        if ok and key and self._cache is not None:
+            self._cache.put(key, artifacts=files, model=used_model, output=text[:500])
         return ExecResult(
-            ok=bool(text.strip()) and bool(files),
+            ok=ok,
             output=text[:500],
             tokens_in=tin,
             tokens_out=tout,
             cost_usd=0.0,  # local inference is free
-            model=model,
+            model=used_model,
             artifacts=files,
         )
+
+    @staticmethod
+    def _write_files(files: dict[str, str], workdir: Path) -> None:
+        for rel, content in files.items():
+            dest = workdir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8")
+
+    def _generate_with_fallback(
+        self, model: str, prompt: str, progress: ProgressFn | None
+    ) -> tuple[str, int, int, str]:
+        """Generate with ``model``; on a timeout/connection error fall back once
+        to the configured fallback model. Returns (text, tin, tout, used_model).
+        Re-raises the unreachable error if there is no usable fallback."""
+        try:
+            text, tin, tout = self._generate(model, prompt, progress)
+            return text, tin, tout, model
+        except _OLLAMA_UNREACHABLE:
+            if not self._fallback_model or self._fallback_model == model:
+                raise
+            text, tin, tout = self._generate(self._fallback_model, prompt, progress)
+            return text, tin, tout, self._fallback_model
 
     def _generate(
         self, model: str, prompt: str, progress: ProgressFn | None

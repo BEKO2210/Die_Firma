@@ -38,9 +38,13 @@ export const POST: APIRoute = async ({ request }) => {
   // Optional RAG: ground the answer in the most relevant outbox deliverables.
   let outgoing = messages;
   if (body.useRag === true) {
-    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    const userTurns = messages.filter((m) => m.role === "user");
+    const lastUser = userTurns[userTurns.length - 1];
     if (lastUser) {
-      const hits = await retrieve(lastUser.content).catch(() => []);
+      // Query expansion (review §9): widen recall with the prior user turns so a
+      // follow-up like "and the tests?" still retrieves the right deliverables.
+      const expansionTerms = userTurns.slice(0, -1).map((m) => m.content);
+      const hits = await retrieve(lastUser.content, 4, { expansionTerms }).catch(() => []);
       const sys = contextSystemPrompt(hits);
       if (sys) outgoing = [{ role: "system", content: sys }, ...messages];
     }

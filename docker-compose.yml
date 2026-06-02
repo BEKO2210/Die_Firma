@@ -1,0 +1,58 @@
+# Local self-host stack for Die Firma (review §10).
+#
+#   DIE_FIRMA_INGEST_TOKEN=$(openssl rand -hex 24) docker compose up --build
+#
+# The dashboard is the single SQLite write authority; the orchestrator only
+# sends telemetry to it over HTTP. Shared volumes carry the filesystem queues
+# (inbox/outbox/state) between the two services. An Ollama service is included
+# (commented) for a fully local, keyless run.
+services:
+  dashboard:
+    build: ./apps/dashboard
+    ports:
+      - "127.0.0.1:4321:4321"
+    environment:
+      DIE_FIRMA_INGEST_TOKEN: ${DIE_FIRMA_INGEST_TOKEN:?set a high-entropy token}
+      DIE_FIRMA_DB_PATH: /data/state/dashboard.db
+      DIE_FIRMA_OUTBOX_DIR: /data/outbox
+      DIE_FIRMA_LANG: ${DIE_FIRMA_LANG:-de}
+    volumes:
+      - state:/data/state
+      - outbox:/data/outbox
+    restart: unless-stopped
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    depends_on:
+      - dashboard
+    environment:
+      DIE_FIRMA_INGEST_TOKEN: ${DIE_FIRMA_INGEST_TOKEN:?set a high-entropy token}
+      DIE_FIRMA_DASHBOARD_URL: http://dashboard:4321
+      DIE_FIRMA_EXECUTOR_MODE: ${DIE_FIRMA_EXECUTOR_MODE:-ollama}
+      DIE_FIRMA_OLLAMA_URL: ${DIE_FIRMA_OLLAMA_URL:-http://host.docker.internal:11434}
+      DIE_FIRMA_LANG: ${DIE_FIRMA_LANG:-en}
+    volumes:
+      - inbox:/app/inbox
+      - outbox:/app/outbox
+      - state:/app/state
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # Fully local, keyless inference. Uncomment + set DIE_FIRMA_OLLAMA_URL to
+  # http://ollama:11434 on the orchestrator to use it.
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   ports:
+  #     - "127.0.0.1:11434:11434"
+  #   volumes:
+  #     - ollama:/root/.ollama
+  #   restart: unless-stopped
+
+volumes:
+  inbox:
+  outbox:
+  state:
+  # ollama:

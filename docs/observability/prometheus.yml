@@ -1,0 +1,10 @@
+# Example Prometheus scrape config for Die Firma (review §6).
+# Run: prometheus --config.file=docs/observability/prometheus.yml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: die-firma
+    metrics_path: /api/metrics-prom
+    static_configs:
+      - targets: ["127.0.0.1:4321"]

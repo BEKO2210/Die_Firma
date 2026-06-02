@@ -1,0 +1,9 @@
+{
+  "cli.submitted": "submitted {id} ({type}) -> {dest}",
+  "cli.created": "created {id} ({type}) -> {dest}",
+  "cli.approved": "approved {id}",
+  "cli.no_tasks": "(no tasks)",
+  "cli.reset": "reset orchestrator state (processed/approved, work/outbox/runlog)",
+  "cli.watching": "watching {inbox} (poll {interval}s, executor={executor})",
+  "cli.job_status": "{id}: {status}"
+}
