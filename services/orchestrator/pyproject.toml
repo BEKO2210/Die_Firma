@@ -4,15 +4,32 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "die-firma-orchestrator"
-version = "0.1.0"
+version = "0.2.0"
 description = "Die Firma — autonomous agency orchestrator (Python side)"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Die Firma" }]
+keywords = ["llm", "agents", "orchestrator", "ollama", "automation"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Topic :: Software Development :: Build Tools",
+]
 dependencies = [
   "pydantic>=2.13.4",
   "httpx>=0.28.1",
   "anthropic>=0.105.2",
   "pyyaml>=6.0.3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/beko2210/die_firma"
+Repository = "https://github.com/beko2210/die_firma"
+Changelog = "https://github.com/beko2210/die_firma/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
