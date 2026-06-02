@@ -106,6 +106,26 @@ Ollama model. With *Job-Kontext* enabled it answers grounded in your `outbox/`
 deliverables via retrieval (embeddings with `nomic-embed-text`, only changed
 files are re-embedded). All loopback-only; nothing leaves your machine.
 
+## v0.2 — extensibility, resilience & operability
+
+The 0.2 release acts on the project review (see [`CHANGELOG.md`](CHANGELOG.md)):
+
+- **Task plugins** (`tasks/`) — register custom decompositions + acceptance
+  validators without touching the core (`[plugins]`). See `tasks/README.md`.
+- **Adaptive parallelism + job priority** — size the worker pool to live CPU /
+  VRAM and run urgent jobs first (`[concurrency].adaptive`).
+- **Result cache** — replay artifacts for identical sub-task inputs (`[cache]`).
+- **LLM timeouts + fallback** — per-request timeout, fallback model, optional
+  offline placeholder (`[ollama].timeout_seconds/fallback_model/offline_fallback`).
+- **i18n** — German/English CLI + dashboard (`[general].language`, `DIE_FIRMA_LANG`).
+- **Observability** — Prometheus exporter at `/api/metrics-prom` + a Grafana
+  dashboard (`docs/observability/`).
+- **RAG+** — multi-turn query expansion, context condensing, pluggable
+  `VectorStore` (Qdrant/Chroma-ready).
+- **UI** — light/dark theme toggle, keyboard focus styles.
+- **Quality** — mutation testing (`mutmut`/Stryker) + chaos tests.
+- **Deploy** — `docker compose up`, pip/npm metadata (`docs/deployment.md`).
+
 ## Repository layout
 
 See `BUILD_PROMPT.md §3`. Top level: `inbox/ outbox/ work/ runlog/ state/`,
