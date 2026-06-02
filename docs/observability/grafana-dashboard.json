@@ -1,0 +1,92 @@
+{
+  "__comment": "Die Firma — observability dashboard (review §6). Import via Grafana → Dashboards → Import, then select your Prometheus data source.",
+  "title": "Die Firma — Orchestrator",
+  "uid": "die-firma-orchestrator",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "tags": ["die-firma", "llm", "orchestrator"],
+  "timezone": "browser",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "15s",
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Tasks by status",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "die_firma_tasks", "legendFormat": "{{status}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Active tasks",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "die_firma_active_tasks", "refId": "A" }]
+    },
+    {
+      "id": 3,
+      "title": "Idle seconds",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "die_firma_idle_seconds", "refId": "A" }]
+    },
+    {
+      "id": 4,
+      "title": "Token throughput (tok/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "die_firma_tokens_per_second", "legendFormat": "tokens/s", "refId": "A" },
+        { "expr": "die_firma_events_per_second", "legendFormat": "events/s", "refId": "B" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Today cost (USD)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [{ "expr": "die_firma_today_cost_usd", "legendFormat": "USD", "refId": "A" }]
+    },
+    {
+      "id": 6,
+      "title": "Tokens per agent (rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "rate(die_firma_agent_tokens_total[5m])",
+          "legendFormat": "{{agent}} {{direction}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Failed tasks",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        { "expr": "die_firma_tasks{status=\"failed\"}", "legendFormat": "failed", "refId": "A" },
+        { "expr": "die_firma_tasks{status=\"blocked\"}", "legendFormat": "blocked", "refId": "B" }
+      ],
+      "alert": {
+        "name": "High task failure count",
+        "conditions": [
+          {
+            "evaluator": { "type": "gt", "params": [5] },
+            "query": { "params": ["A", "5m", "now"] },
+            "reducer": { "type": "max", "params": [] },
+            "type": "query"
+          }
+        ],
+        "for": "5m",
+        "frequency": "1m"
+      }
+    }
+  ]
+}
