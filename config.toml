@@ -36,7 +36,9 @@ allow_unsandboxed = false
 # Override with DIE_FIRMA_OLLAMA_URL / DIE_FIRMA_OLLAMA_MODEL.
 url = "http://localhost:11434"
 # Default model when a task type has no specific override below.
-model = "qwen2.5-coder:14b"
+# qwen3-coder is a 30B-A3B MoE (~3.3B active/token): built for agentic, multi-
+# step coding. On 8GB VRAM it offloads to CPU/RAM, but the MoE keeps it usable.
+model = "qwen3-coder:30b"
 # On a retry the router escalates here — a reasoning model gets a second,
 # stronger attempt after the first model already failed ("Route-to-Reason").
 escalation_model = "deepseek-r1:14b"
@@ -46,19 +48,21 @@ escalation_model = "deepseek-r1:14b"
 #   code_gen / code_review / automation -> a code-specialised model
 #   data_prep                           -> a strong general/reasoning model
 [ollama.models]
-code_gen    = "qwen2.5-coder:14b"
-code_review = "qwen2.5-coder:14b"
-automation  = "qwen2.5-coder:14b"
-data_prep   = "qwen2.5:14b"
+code_gen    = "qwen3-coder:30b"
+code_review = "qwen3-coder:30b"
+automation  = "qwen3-coder:30b"
+data_prep   = "qwen3-coder:30b"
 
-# Per-ROLE models for the router. A sub-task is routed by what it does, not just
-# the job type: writing code, reviewing/critiquing, multi-step reasoning,
-# general writing, or looking at a rendered screenshot (vision).
+# Per-ROLE models for the router. On 8GB VRAM, model swapping (reloading a big
+# model from disk on every role change) is the main bottleneck — so code,
+# review and general all share ONE model (qwen3-coder), keeping the normal
+# code->review->refine path swap-free. Reasoning (only on retry) and vision
+# (only for web visual critique) load their specialist models on demand.
 [ollama.roles]
-code    = "qwen2.5-coder:14b"
-review  = "qwen2.5:14b"
+code    = "qwen3-coder:30b"
+review  = "qwen3-coder:30b"
 reason  = "deepseek-r1:14b"
-general = "qwen2.5:14b"
+general = "qwen3-coder:30b"
 vision  = "llava:7b"
 
 [concurrency]
