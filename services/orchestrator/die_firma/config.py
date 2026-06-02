@@ -67,6 +67,10 @@ class Config:
     quality_max_refine_passes: int
     quality_visual: bool
     max_parallel: int
+    adaptive_parallel: bool
+    min_parallel: int
+    adaptive_ceiling: int
+    vram_per_worker_mb: int
     retry: RetryPolicy
     daily_usd_limit: float
     models: dict[str, str]
@@ -139,6 +143,13 @@ def load_config(start: Path | None = None) -> Config:
         quality_max_refine_passes=int(quality_raw.get("max_refine_passes", 2)),
         quality_visual=bool(quality_raw.get("visual", True)),
         max_parallel=int(raw["concurrency"]["max_parallel_tasks"]),
+        # Adaptive parallelism (review §2): size the worker pool to the machine.
+        adaptive_parallel=bool(raw["concurrency"].get("adaptive", False)),
+        min_parallel=int(raw["concurrency"].get("min_parallel", 1)),
+        adaptive_ceiling=int(
+            raw["concurrency"].get("adaptive_ceiling", raw["concurrency"]["max_parallel_tasks"])
+        ),
+        vram_per_worker_mb=int(raw["concurrency"].get("vram_per_worker_mb", 0)),
         retry=RetryPolicy(
             max_attempts=int(retry_raw["max_attempts"]),
             backoff_seconds=tuple(float(x) for x in retry_raw["backoff_seconds"]),

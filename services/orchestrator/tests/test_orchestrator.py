@@ -72,6 +72,30 @@ def test_plugin_validation_failure_fails_job(stub_config):
     assert "failed" in ingest.statuses()
 
 
+def test_adaptive_worker_count_uses_machine_readings(stub_config, monkeypatch):
+    import die_firma.scheduling as sched
+    from die_firma.runlog import RunLog
+
+    # Force a busy machine -> adaptive scaling backs off to min_workers.
+    monkeypatch.setattr(sched, "cpu_load", lambda: (4, 4.0))
+    monkeypatch.setattr(sched, "free_vram_mb", lambda: None)
+    stub_config.adaptive_parallel = True
+    stub_config.min_parallel = 1
+    stub_config.adaptive_ceiling = 4
+    stub_config.max_parallel = 4
+    orch = _make(stub_config, FakeIngest(), MockExecutor())
+    log = RunLog(stub_config.runlog, "adaptive-job")
+    assert orch._worker_count(log) == 1
+
+
+def test_worker_count_baseline_when_adaptive_off(stub_config):
+    from die_firma.runlog import RunLog
+
+    orch = _make(stub_config, FakeIngest(), MockExecutor())
+    log = RunLog(stub_config.runlog, "baseline-job")
+    assert orch._worker_count(log) == stub_config.max_parallel
+
+
 def test_cost_limit_pauses(stub_config):
     ingest = FakeIngest(spend=999.0)
     orch = _make(stub_config, ingest, MockExecutor())

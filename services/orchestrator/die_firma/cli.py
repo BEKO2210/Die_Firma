@@ -21,6 +21,7 @@ from .ingest_client import IngestClient
 from .models import DELIVERABLE_FORMATS, TASK_TYPES
 from .orchestrator import Orchestrator
 from .plugins import default_registry, load_plugins_from_dir
+from .scheduling import order_jobs
 from .sentinel import Sentinel
 from .watcher import ApprovalRegistry, ProcessedRegistry, load_job_file, scan_inbox
 
@@ -136,8 +137,10 @@ def _process_inbox_once(cfg: Config, orch: Orchestrator) -> list[tuple[str, str]
     processed = ProcessedRegistry(cfg.state)
     approvals = ApprovalRegistry(cfg.state)
     results: list[tuple[str, str]] = []
-    for path in scan_inbox(cfg.inbox):
-        job = load_job_file(path)
+    # Process most-urgent-first by (priority, deadline) so a tight deadline or a
+    # priority-1 job is not stuck behind low-priority work (review §2).
+    pending = [load_job_file(p) for p in scan_inbox(cfg.inbox)]
+    for job in order_jobs(pending):
         if processed.seen(job.id):
             continue
         outcome = orch.process_job(job, approved=approvals.approved(job.id))

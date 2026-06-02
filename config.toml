@@ -94,6 +94,19 @@ dir = "tasks"
 [concurrency]
 # Semaphore: max parallel tasks. Locked start value = 2 (prompt §1).
 max_parallel_tasks = 2
+# Adaptive parallelism (review §2): when true, size the worker pool to the
+# current machine instead of a fixed semaphore — back off under CPU load / tight
+# VRAM, scale up (to adaptive_ceiling) when idle. Off by default to preserve the
+# locked, deterministic baseline.
+adaptive = false
+# Never drop below this many workers.
+min_parallel = 1
+# Hard upper bound when scaling up. Defaults to max_parallel_tasks, so adaptive
+# only *reduces* until you raise this to use more of the box.
+adaptive_ceiling = 2
+# Approx VRAM a single worker's model needs (MiB). >0 caps concurrency so the
+# running workers fit in free VRAM (read via nvidia-smi). 0 disables the cap.
+vram_per_worker_mb = 0
 
 [retry]
 # Sentinel retry policy: 3 attempts, exponential backoff (prompt §1).
