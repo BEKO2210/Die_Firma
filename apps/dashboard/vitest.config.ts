@@ -18,6 +18,7 @@ export default getViteConfig({
         "src/lib/queries.ts",
         "src/lib/prometheus.ts",
         "src/lib/i18n.ts",
+        "src/lib/vectorstore.ts",
       ],
       thresholds: {
         "src/lib/validate.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
@@ -26,6 +27,7 @@ export default getViteConfig({
         "src/lib/queries.ts": { statements: 95, branches: 90, functions: 100, lines: 95 },
         "src/lib/prometheus.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/i18n.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/lib/vectorstore.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
       },
     },
   },

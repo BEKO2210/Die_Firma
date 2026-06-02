@@ -5,9 +5,14 @@
 
 import path from "node:path";
 import fs from "node:fs";
-import { cosine, embed } from "./ollama.ts";
+import { embed } from "./ollama.ts";
+import { InMemoryVectorStore } from "./vectorstore.ts";
 
 export const EMBED_MODEL = "nomic-embed-text";
+
+// Default budget (chars) for the retrieved context block, so long deliverables
+// don't blow up the chat prompt (review §9 — summarisation/condensing).
+const DEFAULT_CONTEXT_BUDGET = 6000;
 
 // Only embed human-readable deliverables; skip binaries and bulky lockfiles.
 const TEXT_EXT = new Set([
@@ -118,25 +123,72 @@ export interface Retrieved {
   score: number;
 }
 
-/** Top-k outbox chunks most similar to `query`. Empty if nothing is indexed. */
-export async function retrieve(query: string, k = 4): Promise<Retrieved[]> {
-  const chunks = await buildIndex();
-  if (!chunks.length) return [];
-  const q = await embed(EMBED_MODEL, query).catch(() => [] as number[]);
-  if (!q.length) return [];
-  return chunks
-    .map((c) => ({ file: c.file, text: c.text, score: cosine(q, c.vector) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, k)
-    .filter((r) => r.score > 0.2);
+/**
+ * Query expansion (review §9): widen recall by appending extra terms (e.g.
+ * earlier conversation turns, or synonyms) to the embedded query. Pure: the
+ * caller decides where the extra terms come from. Duplicates are dropped and the
+ * combined query is length-capped so it stays a focused embedding input.
+ */
+export function expandQuery(query: string, terms: string[] = [], maxChars = 400): string {
+  const seen = new Set<string>();
+  const words: string[] = [];
+  for (const word of [query, ...terms].join(" ").split(/\s+/)) {
+    const w = word.trim();
+    if (!w) continue;
+    const key = w.toLowerCase();
+    if (seen.has(key)) continue; // drop repeated tokens (case-insensitive)
+    seen.add(key);
+    words.push(w);
+  }
+  return words.join(" ").slice(0, maxChars);
 }
 
-/** Build a system message embedding the retrieved deliverable context. */
-export function contextSystemPrompt(hits: Retrieved[]): string | null {
+export interface RetrieveOptions {
+  /** Extra terms appended to the query before embedding (query expansion). */
+  expansionTerms?: string[];
+  /** Minimum cosine score to keep a hit. */
+  minScore?: number;
+}
+
+/** Top-k outbox chunks most similar to `query`. Empty if nothing is indexed. */
+export async function retrieve(query: string, k = 4, opts: RetrieveOptions = {}): Promise<Retrieved[]> {
+  const chunks = await buildIndex();
+  if (!chunks.length) return [];
+  const expanded = expandQuery(query, opts.expansionTerms ?? []);
+  const q = await embed(EMBED_MODEL, expanded).catch(() => [] as number[]);
+  if (!q.length) return [];
+  const store = new InMemoryVectorStore<Retrieved>();
+  for (const c of chunks) store.add(c.vector, { file: c.file, text: c.text, score: 0 });
+  return store
+    .search(q, k, opts.minScore ?? 0.2)
+    .map((s) => ({ ...s.item, score: s.score }));
+}
+
+/**
+ * Condense hits into a context block under a char budget (review §9). Hits are
+ * already similarity-ordered; we keep whole chunks until the budget is reached,
+ * truncating the last one with an ellipsis so the most relevant context survives
+ * instead of being dropped wholesale.
+ */
+export function condenseContext(hits: Retrieved[], budget = DEFAULT_CONTEXT_BUDGET): string {
+  const blocks: string[] = [];
+  let used = 0;
+  for (const h of hits) {
+    if (used >= budget) break;
+    const header = `### Datei: ${h.file}\n`;
+    const remaining = budget - used - header.length;
+    if (remaining <= 0) break;
+    const body = h.text.length > remaining ? h.text.slice(0, remaining) + " …" : h.text;
+    blocks.push(header + body);
+    used += header.length + body.length;
+  }
+  return blocks.join("\n\n");
+}
+
+/** Build a system message embedding the (condensed) retrieved context. */
+export function contextSystemPrompt(hits: Retrieved[], budget = DEFAULT_CONTEXT_BUDGET): string | null {
   if (!hits.length) return null;
-  const ctx = hits
-    .map((h) => `### Datei: ${h.file}\n${h.text}`)
-    .join("\n\n");
+  const ctx = condenseContext(hits, budget);
   return (
     "Du bist der Assistent von „Die Firma\" und beantwortest Fragen zu den vom " +
     "System erzeugten Deliverables. Nutze NUR den folgenden Kontext, wenn er " +
