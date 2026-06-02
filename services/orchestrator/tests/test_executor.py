@@ -7,6 +7,8 @@ from die_firma.executor import (
     ClaudeCodeExecutor,
     MockExecutor,
     OllamaExecutor,
+    _clean_task,
+    _parse_files,
     _usage_from_stream,
     build_firejail_command,
     make_executor,
@@ -91,9 +93,10 @@ def test_ollama_executor_writes_deliverable_and_tokens(tmp_path):
     assert captured["url"].endswith("/api/generate")
     assert captured["body"]["model"] == "llama3.2"
     assert captured["body"]["stream"] is False
-    # ':' in the subtask id is sanitised for the filename
-    written = (tmp_path / "job1_implement.md").read_text(encoding="utf-8")
+    # No file-block in the response -> fallback writes one real file by action.
+    written = (tmp_path / "implement.md").read_text(encoding="utf-8")
     assert "hello from local model" in written
+    assert "implement.md" in res.artifacts
 
 
 def test_ollama_executor_empty_response_is_not_ok(tmp_path):
@@ -103,6 +106,112 @@ def test_ollama_executor_empty_response_is_not_ok(tmp_path):
     ex = OllamaExecutor("http://localhost:11434", "llama3.2", client=client)
     res = ex.run(make_job(), Subtask(id="s1", title="t", action="a"), tmp_path)
     assert res.ok is False  # empty generation -> sentinel retries
+
+
+def test_ollama_picks_model_per_task_type():
+    ex = OllamaExecutor(
+        "http://localhost:11434",
+        "default-model",
+        models={"code_gen": "coder", "data_prep": "general"},
+    )
+    assert ex.model_for(make_job(type="code_gen")) == "coder"
+    assert ex.model_for(make_job(type="data_prep")) == "general"
+    # A type without an override falls back to the default model.
+    assert ex.model_for(make_job(type="automation")) == "default-model"
+
+
+def test_ollama_uses_per_type_model_and_reports_it(tmp_path):
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        captured["body"] = _json.loads(request.content)
+        return httpx.Response(200, json={"response": "ok", "eval_count": 3})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    ex = OllamaExecutor(
+        "http://localhost:11434", "default-model", client=client, models={"code_gen": "coder"}
+    )
+    res = ex.run(
+        make_job(type="code_gen"),
+        Subtask(id="j:implement", title="t", action="implement"),
+        tmp_path,
+    )
+    assert captured["body"]["model"] == "coder"
+    assert res.model == "coder"
+
+
+def test_ollama_self_review_gets_prior_files_in_prompt(tmp_path):
+    # Files already in the workdir (from 'implement') must reach 'self_review'.
+    (tmp_path / "index.html").write_text("PRIOR WORK XYZ", encoding="utf-8")
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        captured["body"] = _json.loads(request.content)
+        return httpx.Response(200, json={"response": "reviewed"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    ex = OllamaExecutor("http://localhost:11434", "m", client=client)
+    st = Subtask(
+        id="j:self_review", title="review", action="self_review", depends_on=["j:implement"]
+    )
+    ex.run(make_job(), st, tmp_path)
+    assert "PRIOR WORK XYZ" in captured["body"]["prompt"]
+    assert "index.html" in captured["body"]["prompt"]
+    assert "Was wurde gemacht" in captured["body"]["prompt"]  # action-specific instruction
+
+
+def test_ollama_writes_real_files_with_subfolders(tmp_path):
+    response = (
+        "Here you go:\n"
+        "<<<FILE: index.html>>>\n<!doctype html><title>Hi</title>\n<<<END>>>\n"
+        "<<<FILE: src/app.js>>>\nconsole.log('hi');\n<<<END>>>\n"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"response": response}))
+    )
+    ex = OllamaExecutor("http://localhost:11434", "m", client=client)
+    res = ex.run(make_job(), Subtask(id="j:implement", title="t", action="implement"), tmp_path)
+    assert (tmp_path / "index.html").read_text(encoding="utf-8").startswith("<!doctype html>")
+    assert (tmp_path / "src" / "app.js").read_text(encoding="utf-8").strip() == "console.log('hi');"
+    assert set(res.artifacts) == {"index.html", "src/app.js"}
+
+
+def test_parse_files_rejects_path_escapes():
+    text = "<<<FILE: ../evil.sh>>>\nrm -rf /\n<<<END>>>\n<<<FILE: ok/clean.txt>>>\nfine\n<<<END>>>"
+    files = _parse_files(text)
+    assert set(files) == {"ok/clean.txt"}  # parent-escape dropped
+
+
+def test_parse_files_strips_markdown_fences():
+    # Models often wrap file bodies in ```lang fences despite being told not to.
+    text = "<<<FILE: index.html>>>\n```html\n<!doctype html><title>x</title>\n```\n<<<END>>>"
+    files = _parse_files(text)
+    assert files["index.html"].strip() == "<!doctype html><title>x</title>"
+    assert "```" not in files["index.html"]
+
+
+def test_fallback_infers_html_extension(tmp_path):
+    html = "<!DOCTYPE html>\n<html><body>Hi</body></html>"
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"response": html}))
+    )
+    ex = OllamaExecutor("http://localhost:11434", "m", client=client)
+    res = ex.run(make_job(), Subtask(id="j:implement", title="t", action="implement"), tmp_path)
+    assert "implement.html" in res.artifacts
+    assert (tmp_path / "implement.html").is_file()
+
+
+def test_clean_task_collapses_duplicated_title():
+    # `new`/the GUI emit `# <title>\n\n<title>` when no description is given.
+    assert (
+        _clean_task(make_job(body="# Reverse a string\n\nReverse a string")) == "Reverse a string"
+    )
+    # A real description is preserved alongside the heading.
+    assert "Do the work." in _clean_task(make_job(body="# Build a thing\nDo the work."))
 
 
 def test_claude_executor_fail_closed_without_firejail(monkeypatch, tmp_path):

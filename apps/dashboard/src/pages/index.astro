@@ -1,29 +1,104 @@
 ---
 import Layout from "../components/Layout.astro";
 import { getDb } from "../lib/db.ts";
-import { listEvents, listMetrics, listSubtasks, listTasks, todaySpend } from "../lib/queries.ts";
+import {
+  agentStats,
+  listEvents,
+  listMetrics,
+  listSubtasks,
+  listTasks,
+  todaySpend,
+} from "../lib/queries.ts";
 
 export const prerender = false;
 
 // SSR initial snapshot from the read-model. The client then keeps it live via
-// SSE (+ 2s polling fallback). Read-only: this page never writes.
+// SSE (+ 2s polling fallback).
 const db = getDb();
 const tasks = listTasks(db).map((t) => ({ ...t, subtasks: listSubtasks(db, t.id) }));
 const events = listEvents(db, { limit: 100 });
 const metrics = listMetrics(db, 14);
 const today = new Date().toISOString().slice(0, 10);
-const bootstrap = { tasks, events, metrics, today, today_spend: todaySpend(db, today) };
+const bootstrap = {
+  tasks,
+  events,
+  metrics,
+  today,
+  today_spend: todaySpend(db, today),
+  agents: agentStats(db),
+};
 ---
 
 <Layout>
   <header class="app">
     <h1>DIE&nbsp;FIRMA</h1>
-    <span class="sub">autonome digitale Agentur — read-only Monitor</span>
+    <span class="sub">autonome digitale Agentur — Aufträge aufgeben &amp; live verfolgen</span>
     <span class="conn" id="conn" data-state="polling" data-testid="conn-state">polling</span>
   </header>
 
   <main>
-    <section class="panel" aria-labelledby="kanban-h">
+    <section class="panel new-job full" aria-labelledby="newjob-h">
+      <h2 id="newjob-h">Neuer Auftrag</h2>
+      <form id="job-form" data-testid="job-form" autocomplete="off">
+        <div class="row">
+          <label class="grow">
+            <span>Titel</span>
+            <input id="job-title" name="title" type="text" required maxlength="200"
+                   placeholder="z. B. Schreibe eine Python-Funktion, die einen String umkehrt" />
+          </label>
+        </div>
+        <div class="row">
+          <label class="grow">
+            <span>Beschreibung <em>(optional)</em></span>
+            <textarea id="job-description" name="description" rows="3"
+                      placeholder="Mehr Details zur Aufgabe — bleibt leer = Titel wird verwendet"></textarea>
+          </label>
+        </div>
+        <div class="row">
+          <label>
+            <span>Typ</span>
+            <select id="job-type" name="type">
+              <option value="code_gen">code_gen</option>
+              <option value="code_review">code_review</option>
+              <option value="automation">automation</option>
+              <option value="data_prep">data_prep</option>
+            </select>
+          </label>
+          <label>
+            <span>Priorität</span>
+            <select id="job-priority" name="priority">
+              <option value="1">1 (hoch · Freigabe nötig)</option>
+              <option value="2" selected>2 (normal)</option>
+              <option value="3">3 (niedrig)</option>
+            </select>
+          </label>
+          <label>
+            <span>Lieferform</span>
+            <select id="job-deliverable" name="deliverable_format">
+              <option value="file">file</option>
+              <option value="git_branch">git_branch</option>
+              <option value="report">report</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label class="grow">
+            <span>Verify-Kommando <em>(optional)</em></span>
+            <input id="job-verify" name="verify" type="text" placeholder='z. B. ls *.txt' />
+          </label>
+          <label class="check">
+            <input id="job-approve" name="requires_approval" type="checkbox" />
+            <span>Manuelle Freigabe verlangen</span>
+          </label>
+        </div>
+        <div class="row actions">
+          <button type="submit" id="job-submit">Auftrag aufgeben</button>
+          <span class="form-msg" id="job-msg" role="status" aria-live="polite"></span>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel full" aria-labelledby="kanban-h">
       <h2 id="kanban-h">Kanban</h2>
       <div class="kanban" id="kanban" data-testid="kanban">
         <div class="col"><h3>Queue <span class="count" data-count="queue">0</span></h3><div data-col="queue"></div></div>
@@ -37,7 +112,7 @@ const bootstrap = { tasks, events, metrics, today, today_spend: todaySpend(db, t
       <h2 id="agents-h">Agenten-Monitor</h2>
       <table data-testid="agents">
         <thead>
-          <tr><th scope="col">Agent</th><th scope="col">Aktive Tasks</th><th scope="col">Tokens (in/out)</th><th scope="col">$ Kosten</th></tr>
+          <tr><th scope="col">Agent</th><th scope="col">Aktiv / Tasks</th><th scope="col">Tokens (in/out)</th><th scope="col">$ Kosten</th></tr>
         </thead>
         <tbody id="agents-body"></tbody>
       </table>
@@ -67,6 +142,7 @@ const bootstrap = { tasks, events, metrics, today, today_spend: todaySpend(db, t
       status: string | null; message: string | null; ts: string;
     };
     type Metric = { date: string; tokens_in: number; tokens_out: number; cost_usd: number; tasks_done: number; tasks_failed: number };
+    type AgentStat = { agent: string; tasks: number; active: number; tokens_in: number; tokens_out: number; cost_usd: number };
 
     const COLS: Record<string, string> = {
       queued: "queue", awaiting_approval: "queue",
@@ -87,6 +163,7 @@ const bootstrap = { tasks, events, metrics, today, today_spend: todaySpend(db, t
     let tasks: AnyTask[] = [];
     let events: AnyEvent[] = [];
     let metrics: Metric[] = [];
+    let agents: AgentStat[] = [];
     let todaySpend = { cost_usd: 0, tokens_in: 0, tokens_out: 0 };
     let today = "";
 
@@ -114,13 +191,15 @@ const bootstrap = { tasks, events, metrics, today, today_spend: todaySpend(db, t
 
     function renderAgents() {
       const body = $("#agents-body")!;
+      const byName = new Map(agents.map((a) => [a.agent, a]));
       body.innerHTML = AGENTS.map((a) => {
-        const ts = tasks.filter((t) => t.agent === a);
-        const active = ts.filter((t) => !["done", "failed", "cancelled"].includes(t.status ?? "")).length;
-        const tin = ts.reduce((s, t) => s + t.total_tokens_in, 0);
-        const tout = ts.reduce((s, t) => s + t.total_tokens_out, 0);
-        const cost = ts.reduce((s, t) => s + t.total_cost_usd, 0);
-        return `<tr><td>${a}</td><td>${active}</td><td>${tin}/${tout}</td><td>$${cost.toFixed(4)}</td></tr>`;
+        const s = byName.get(a);
+        const tasksN = s?.tasks ?? 0;
+        const active = s?.active ?? 0;
+        const tin = s?.tokens_in ?? 0;
+        const tout = s?.tokens_out ?? 0;
+        const cost = s?.cost_usd ?? 0;
+        return `<tr><td>${a}</td><td>${active} / ${tasksN}</td><td>${tin}/${tout}</td><td>$${cost.toFixed(4)}</td></tr>`;
       }).join("");
     }
 
@@ -161,7 +240,7 @@ const bootstrap = { tasks, events, metrics, today, today_spend: todaySpend(db, t
         fetch("/api/metrics").then((r) => r.json()),
       ]);
       tasks = tr.tasks; events = er.events; metrics = mr.daily;
-      todaySpend = mr.today_spend; today = mr.today;
+      agents = mr.agents ?? []; todaySpend = mr.today_spend; today = mr.today;
       renderAll();
     }
 
@@ -169,7 +248,7 @@ const bootstrap = { tasks, events, metrics, today, today_spend: todaySpend(db, t
     try {
       const boot = JSON.parse(($("#bootstrap") as HTMLScriptElement).textContent || "{}");
       tasks = boot.tasks ?? []; events = boot.events ?? []; metrics = boot.metrics ?? [];
-      todaySpend = boot.today_spend ?? todaySpend; today = boot.today ?? "";
+      agents = boot.agents ?? []; todaySpend = boot.today_spend ?? todaySpend; today = boot.today ?? "";
       renderAll();
     } catch { /* fall through to refresh() */ }
 
@@ -192,6 +271,58 @@ const bootstrap = { tasks, events, metrics, today, today_spend: todaySpend(db, t
         es.addEventListener(k, () => refresh());
       }
     } catch { startPolling(); }
+
+    // --- Neuer-Auftrag-Formular: POST an /api/jobs, dann sofort refresh -------
+    function wireJobForm() {
+      const form = $("#job-form") as HTMLFormElement | null;
+      if (!form) return;
+      const msg = $("#job-msg") as HTMLElement;
+      const btn = $("#job-submit") as HTMLButtonElement;
+      const val = (sel: string) => (($(sel) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)?.value ?? "").trim();
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const title = val("#job-title");
+        if (title === "") { msg.textContent = "Titel fehlt."; msg.dataset.kind = "err"; return; }
+        const payload = {
+          title,
+          description: val("#job-description"),
+          type: val("#job-type"),
+          priority: Number(val("#job-priority")),
+          deliverable_format: val("#job-deliverable"),
+          verify: val("#job-verify") || null,
+          requires_approval: ($("#job-approve") as HTMLInputElement).checked,
+        };
+        btn.disabled = true;
+        msg.dataset.kind = ""; msg.textContent = "sende …";
+        try {
+          const res = await fetch("/api/jobs", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            msg.dataset.kind = "err";
+            msg.textContent = "Fehler: " + esc(body.error ?? res.statusText);
+            return;
+          }
+          msg.dataset.kind = "ok";
+          const idShort = esc(String(body.id ?? "").slice(0, 8));
+          msg.textContent = body.requires_approval
+            ? `angelegt ${idShort} — wartet auf Freigabe (./firma approve ${idShort}…)`
+            : `angelegt ${idShort} — läuft in die Queue`;
+          form.reset();
+          void refresh();
+        } catch (err) {
+          msg.dataset.kind = "err";
+          msg.textContent = "Netzwerkfehler: " + esc(err instanceof Error ? err.message : String(err));
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    }
+    wireJobForm();
 
     void refresh();
   </script>

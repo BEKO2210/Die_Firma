@@ -72,6 +72,7 @@ load_env() {
   export HOST="${DASHBOARD_HOST:-127.0.0.1}"
   export PORT="${DASHBOARD_PORT:-4321}"
   export DIE_FIRMA_DB_PATH="${DIE_FIRMA_DB_PATH:-$STATE/dashboard.db}"
+  export DIE_FIRMA_INBOX_DIR="${DIE_FIRMA_INBOX_DIR:-$ROOT/inbox}"
   export DIE_FIRMA_DASHBOARD_URL="${DIE_FIRMA_DASHBOARD_URL:-http://127.0.0.1:$PORT}"
   URL="$DIE_FIRMA_DASHBOARD_URL"
 }
@@ -165,6 +166,7 @@ cmd_start() {
 }
 
 cmd_stop() {
+  load_env 2>/dev/null || true
   for pidf in "$PID_ORC" "$PID_DASH"; do
     if is_running "$pidf"; then
       kill "$(cat "$pidf")" 2>/dev/null || true
@@ -172,6 +174,20 @@ cmd_stop() {
     fi
     rm -f "$pidf"
   done
+  # Sweep any stragglers from earlier runs whose PID file got overwritten — these
+  # zombies keep polling the inbox and corrupt the board. The venv path is unique
+  # to THIS checkout, so the match never hits another project.
+  if pkill -f "$PY -m die_firma.cli run" 2>/dev/null; then
+    ok "swept stray orchestrator process(es)"
+  fi
+  # Dashboard: kill whatever still holds our port (relative entry path isn't
+  # uniquely matchable, so go by the port we own).
+  local dpid
+  dpid="$(ss -ltnpH "sport = :${PORT:-4321}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1 || true)"
+  if [ -n "${dpid:-}" ]; then
+    kill "$dpid" 2>/dev/null || true
+    ok "swept stray dashboard on port ${PORT:-4321}"
+  fi
   ok "Die Firma stopped"
 }
 

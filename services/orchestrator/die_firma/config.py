@@ -53,6 +53,7 @@ class Config:
     allow_unsandboxed: bool
     ollama_url: str
     ollama_model: str
+    ollama_models: dict[str, str]
     max_parallel: int
     retry: RetryPolicy
     daily_usd_limit: float
@@ -102,6 +103,9 @@ def load_config(start: Path | None = None) -> Config:
         ollama_model=os.environ.get(
             "DIE_FIRMA_OLLAMA_MODEL", str(ollama_raw.get("model", "llama3.2"))
         ),
+        # Per-task-type model overrides from [ollama.models]; the worker picks
+        # the best installed model for each job type (code vs. general, …).
+        ollama_models={str(k): str(v) for k, v in dict(ollama_raw.get("models", {})).items()},
         max_parallel=int(raw["concurrency"]["max_parallel_tasks"]),
         retry=RetryPolicy(
             max_attempts=int(retry_raw["max_attempts"]),

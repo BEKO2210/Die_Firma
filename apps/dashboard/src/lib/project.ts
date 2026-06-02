@@ -76,7 +76,9 @@ function projectTask(db: DB, ev: IngestEvent): void {
   const data = parseData(ev.data);
 
   if (existing === undefined) {
-    const d = data as TaskCreateData;
+    // A task row is created by the task-level `task_created` event; never seed
+    // task metadata from a stray sub-task event.
+    const d: TaskCreateData = ev.subtask_id === null ? (data as TaskCreateData) : {};
     db.prepare(
       `INSERT INTO tasks (id, type, priority, deadline, title, status, agent, error,
          total_tokens_in, total_tokens_out, total_cost_usd, deliverable_format,
@@ -100,10 +102,15 @@ function projectTask(db: DB, ev: IngestEvent): void {
     return;
   }
 
-  // Update existing task: only overwrite metadata when the event carries it.
-  const d = data as TaskCreateData;
-  const nextStatus: Status | null = ev.status ?? existing.status;
-  const nextAgent = ev.agent ?? existing.agent;
+  // Update existing task. Sub-task events (those carrying a subtask_id) belong
+  // to the SUB-task, not the parent: they may only contribute token/cost to the
+  // task. Letting their title/status leak in is what made every card show the
+  // last sub-task's title and flip the Kanban column to "done" mid-run. So task
+  // title/metadata/status/agent are taken only from task-level events.
+  const isTaskLevel = ev.subtask_id === null;
+  const md: TaskCreateData = isTaskLevel ? (data as TaskCreateData) : {};
+  const nextStatus: Status | null = isTaskLevel ? (ev.status ?? existing.status) : existing.status;
+  const nextAgent = isTaskLevel ? (ev.agent ?? existing.agent) : existing.agent;
   const nextError = ev.kind === "error" ? (ev.message ?? existing.error) : existing.error;
 
   db.prepare(
@@ -123,11 +130,11 @@ function projectTask(db: DB, ev: IngestEvent): void {
      WHERE id = @id`,
   ).run({
     id,
-    type: asString(d.type),
-    priority: asInt(d.priority),
-    deadline: asString(d.deadline),
-    title: asString(d.title),
-    fmt: asString(d.deliverable_format),
+    type: asString(md.type),
+    priority: asInt(md.priority),
+    deadline: asString(md.deadline),
+    title: asString(md.title),
+    fmt: asString(md.deliverable_format),
     status: nextStatus,
     agent: nextAgent,
     error: nextError,
@@ -196,9 +203,16 @@ export function applyEvent(db: DB, ev: IngestEvent): number {
     .run(ev);
 
   // Detect a terminal transition for daily done/failed counters (count once).
+  // Only task-level events count — otherwise each finished sub-task would also
+  // bump "tasks done", massively over-counting the daily metric.
   let doneDelta = 0;
   let failedDelta = 0;
-  if (ev.task_id !== null && ev.status !== null && TERMINAL.has(ev.status)) {
+  if (
+    ev.task_id !== null &&
+    ev.subtask_id === null &&
+    ev.status !== null &&
+    TERMINAL.has(ev.status)
+  ) {
     const prev = getTask(db, ev.task_id);
     const wasTerminal = prev !== undefined && prev.status !== null && TERMINAL.has(prev.status);
     if (!wasTerminal) {

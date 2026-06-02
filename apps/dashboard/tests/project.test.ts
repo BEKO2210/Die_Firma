@@ -161,4 +161,38 @@ describe("applyEvent — subtask projection", () => {
     applyEvent(db, ev({ kind: "log", subtask_id: "orphan" }));
     expect(sub("orphan")).toBeUndefined();
   });
+
+  it("sub-task events never clobber the parent task's title or status", () => {
+    applyEvent(
+      db,
+      ev({
+        kind: "task_created",
+        task_id: "t1",
+        status: "running",
+        data: JSON.stringify({ title: "Build a thing", type: "code_gen" }),
+      }),
+    );
+    // A sub-task finishing must NOT flip the task to done or rename it, but its
+    // tokens/cost should still accrue on the task.
+    applyEvent(
+      db,
+      ev({
+        kind: "subtask_updated",
+        task_id: "t1",
+        subtask_id: "t1:self_review",
+        status: "done",
+        data: JSON.stringify({ title: "Self-review and prepare the deliverable" }),
+        tokens_in: 7,
+        tokens_out: 3,
+      }),
+    );
+    expect(task("t1")).toMatchObject({
+      title: "Build a thing",
+      status: "running",
+      total_tokens_in: 7,
+      total_tokens_out: 3,
+    });
+    // ...and a finished sub-task must not count as a finished task.
+    expect(metric(DAY)?.tasks_done ?? 0).toBe(0);
+  });
 });

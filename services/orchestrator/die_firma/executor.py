@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -30,7 +31,9 @@ class ExecResult:
     tokens_in: int = 0
     tokens_out: int = 0
     cost_usd: float = 0.0
-    # Relative filename -> content, written into the subtask workdir.
+    # Which model produced this result (for telemetry + the deliverable summary).
+    model: str = ""
+    # Relative path -> content for every file written into the subtask workdir.
     artifacts: dict[str, str] = field(default_factory=dict)
 
 
@@ -76,12 +79,13 @@ def make_executor(
     settings_template: Path | None = None,
     ollama_url: str = "http://localhost:11434",
     ollama_model: str = "llama3.2",
+    ollama_models: dict[str, str] | None = None,
 ) -> Executor:
     """Factory selecting the executor from config.toml's [executor].mode."""
     if mode == "mock":
         return MockExecutor()
     if mode == "ollama":
-        return OllamaExecutor(ollama_url, ollama_model)
+        return OllamaExecutor(ollama_url, ollama_model, models=ollama_models)
     if mode == "claude_code":
         return ClaudeCodeExecutor(
             firejail_bin,
@@ -239,15 +243,196 @@ class ClaudeCodeExecutor:
         )
 
 
-def _worker_prompt(job: Job, subtask: Subtask) -> str:
-    return (
-        "You are a worker agent in an autonomous engineering pipeline. "
-        f"Job {job.id} (type: {job.type}). Sub-task: {subtask.title}.\n\n"
-        f"Task description:\n{job.body}\n\n"
-        f"Action to perform: {subtask.action}.\n"
-        "Respond with the concrete deliverable for this sub-task (code, report, "
-        "or data as appropriate). Output only the deliverable content."
-    )
+# Concrete, action-specific instructions so each sub-task does exactly one job
+# well and emits REAL files (not one .md blob), keyed by Subtask.action.
+_ACTION_INSTRUCTIONS: dict[str, str] = {
+    "implement": (
+        "Produce the COMPLETE, working deliverable as REAL FILES with correct "
+        "extensions and a sensible folder structure — e.g. `index.html` + "
+        "`styles.css` + `script.js` for a web page, `app.py` for Python, or a "
+        "`package.json` plus a `src/` tree for a Node/React app. Emit every file "
+        "the deliverable needs. Never cram everything into a single .md file."
+    ),
+    "self_review": (
+        "Review the files produced in the previous step (shown above) for "
+        "correctness, completeness and quality. Fix every issue, then re-emit the "
+        "FINAL corrected files IN FULL using the SAME paths so they overwrite the "
+        "drafts. Also emit a file `NOTES.md` whose body is a '## Was wurde gemacht' "
+        "section with 2–4 bullets stating exactly what was built and what you changed."
+    ),
+    "analyze": (
+        "Analyze the target and emit a structured review report as `REVIEW.md`: "
+        "concrete findings, a severity for each, and actionable recommendations."
+    ),
+    "build_script": (
+        "Write the complete, runnable automation script as a real file with the "
+        "right extension (e.g. `automate.py`, `script.sh`) plus a short `README.md` "
+        "explaining usage and prerequisites."
+    ),
+    "smoke": (
+        "Smoke-test the script from the previous step: walk through how it runs and "
+        "the expected output, and flag any bug or missing case. Emit your findings "
+        "and a clear PASS or FAIL verdict as `SMOKE_TEST.md`."
+    ),
+    "ingest": (
+        "Ingest and validate the input data described in the task. Emit `INGEST.md` "
+        "stating your assumptions, the detected schema, and any data-quality issues."
+    ),
+    "transform": (
+        "Using the data from the previous step, emit the FINAL requested data file "
+        "with the correct extension (e.g. `.csv`, `.json`)."
+    ),
+}
+
+# Strict, fence-free file protocol the model must use so we can write real files.
+_FILE_PROTOCOL = (
+    "\n## Output format (STRICT — follow exactly)\n"
+    "Return the deliverable as one or more real files. For EACH file emit a block:\n"
+    "<<<FILE: relative/path/name.ext>>>\n"
+    "...the full file content...\n"
+    "<<<END>>>\n"
+    "Rules: pick correct extensions; create sub-folders via the path (e.g. "
+    "src/App.jsx); do NOT wrap file contents in markdown code fences; emit every "
+    "file the deliverable needs."
+)
+
+_FILE_BLOCK = re.compile(
+    r"<<<FILE:\s*(?P<path>[^\n>]+?)\s*>>>\r?\n(?P<body>.*?)\r?\n?<<<END>>>",
+    re.DOTALL,
+)
+
+_LANG_EXT: dict[str, str] = {
+    "python": "py",
+    "py": "py",
+    "html": "html",
+    "htm": "html",
+    "css": "css",
+    "javascript": "js",
+    "js": "js",
+    "jsx": "jsx",
+    "typescript": "ts",
+    "ts": "ts",
+    "tsx": "tsx",
+    "json": "json",
+    "bash": "sh",
+    "sh": "sh",
+    "shell": "sh",
+    "sql": "sql",
+    "yaml": "yaml",
+    "yml": "yml",
+    "markdown": "md",
+    "md": "md",
+    "text": "txt",
+    "": "txt",
+}
+
+
+def _clean_task(job: Job) -> str:
+    """The task text without the duplicated title that `new`/the GUI emit.
+
+    Inbox bodies look like `# <title>\\n\\n<description>`, and when no description
+    is given the description IS the title — feeding both to the model made it ask
+    'why did you repeat the same text twice?'. Collapse that here."""
+    body = job.body.strip()
+    if not body:
+        return job.id
+    lines = body.splitlines()
+    first = lines[0].lstrip()
+    if first.startswith("#"):
+        heading = first.lstrip("#").strip()
+        rest = "\n".join(lines[1:]).strip()
+        if not rest or rest == heading:
+            return heading
+        return f"{heading}\n\n{rest}"
+    return body
+
+
+def _safe_relpath(raw: str) -> str | None:
+    """A sandbox-safe relative path: no absolutes, no parent escapes."""
+    p = raw.strip().strip("/").replace("\\", "/")
+    parts = [seg for seg in p.split("/") if seg not in ("", ".")]
+    if not parts or any(seg == ".." for seg in parts):
+        return None
+    return "/".join(parts)
+
+
+def _strip_fence(body: str) -> tuple[str, str | None]:
+    """Drop a wrapping ```lang … ``` fence models add despite being told not to.
+
+    Returns (clean_body, language_or_None)."""
+    b = body.strip("\n")
+    full = re.match(r"^```([\w+-]*)[^\n]*\n(.*)\n```\s*$", b, re.DOTALL)
+    if full:
+        return full.group(2), full.group(1).lower() or None
+    # Tolerate a leading fence whose close was dropped (model truncation).
+    lead = re.match(r"^```([\w+-]*)[^\n]*\n(.*)$", b, re.DOTALL)
+    if lead:
+        rest = lead.group(2)
+        if rest.rstrip().endswith("```"):
+            rest = rest.rstrip()[:-3].rstrip("\n")
+        return rest, lead.group(1).lower() or None
+    return b, None
+
+
+def _parse_files(text: str) -> dict[str, str]:
+    """Extract `<<<FILE: path>>> ... <<<END>>>` blocks into {relpath: content}."""
+    files: dict[str, str] = {}
+    for m in _FILE_BLOCK.finditer(text):
+        rel = _safe_relpath(m.group("path"))
+        if rel is not None:
+            body, _ = _strip_fence(m.group("body"))
+            files[rel] = body.strip("\n") + "\n"
+    return files
+
+
+def _fallback_file(text: str, subtask: Subtask) -> dict[str, str]:
+    """No file blocks emitted — infer a single sensible file from the raw output."""
+    body, lang = _strip_fence(text.strip())
+    if lang is not None:
+        ext = _LANG_EXT.get(lang, "txt")
+    elif "<!doctype html" in body.lower() or "<html" in body.lower():
+        ext = "html"
+    else:
+        ext = "md"
+    return {f"{subtask.action}.{ext}": body.strip("\n") + "\n"}
+
+
+def _read_workdir(workdir: Path, max_bytes: int = 8000) -> dict[str, str]:
+    """Files already produced in the workdir, so dependent steps build on real
+    prior work (e.g. self_review sees exactly what implement wrote)."""
+    ctx: dict[str, str] = {}
+    if not workdir.is_dir():
+        return ctx
+    for path in sorted(workdir.rglob("*")):
+        rel = path.relative_to(workdir)
+        if path.is_file() and ".git" not in rel.parts and not path.name.startswith("."):
+            try:
+                ctx[str(rel)] = path.read_text(encoding="utf-8")[:max_bytes]
+            except (OSError, UnicodeDecodeError):
+                continue
+    return ctx
+
+
+def _worker_prompt(job: Job, subtask: Subtask, context: dict[str, str]) -> str:
+    task = _clean_task(job)
+    instr = _ACTION_INSTRUCTIONS.get(subtask.action, "Produce the deliverable for this step.")
+    parts = [
+        "You are an expert software engineer in an autonomous build pipeline. "
+        "Work precisely and decisively — you have everything you need, so never ask "
+        "the user questions and never apologise.",
+        f"\n## Task\n{task}",
+    ]
+    if context:
+        joined = "\n\n".join(
+            f"### File `{name}` from a previous step:\n{content}"
+            for name, content in context.items()
+        )
+        parts.append(
+            "\n## Files already produced (build on these — re-emit to change them)\n" + joined
+        )
+    parts.append(f"\n## Your job for this '{subtask.action}' step\n{instr}")
+    parts.append(_FILE_PROTOCOL)
+    return "\n".join(parts)
 
 
 class OllamaExecutor:
@@ -256,7 +441,10 @@ class OllamaExecutor:
     Talks to Ollama's HTTP API (`POST /api/generate`). The generated text is
     written into the sub-task workdir as the deliverable; token counts come from
     Ollama's `prompt_eval_count` / `eval_count`. Local inference is free, so
-    cost is always 0 (the daily cost guard simply never trips)."""
+    cost is always 0 (the daily cost guard simply never trips).
+
+    The model is chosen per job type from `models` (e.g. a code model for
+    code_gen, a general model for data_prep), falling back to the default."""
 
     mode = "ollama"
 
@@ -266,28 +454,42 @@ class OllamaExecutor:
         model: str,
         client: httpx.Client | None = None,
         timeout: float = 600.0,
+        *,
+        models: dict[str, str] | None = None,
     ) -> None:
         self._url = url.rstrip("/")
-        self._model = model
+        self._default_model = model
+        self._models = dict(models or {})
         self._client = client or httpx.Client(timeout=timeout)
+
+    def model_for(self, job: Job) -> str:
+        """Best available model for this job's type (falls back to the default)."""
+        return self._models.get(job.type, self._default_model)
 
     def run(self, job: Job, subtask: Subtask, workdir: Path) -> ExecResult:
         workdir.mkdir(parents=True, exist_ok=True)
-        prompt = _worker_prompt(job, subtask)
+        model = self.model_for(job)
+        context = _read_workdir(workdir)
+        prompt = _worker_prompt(job, subtask, context)
         resp = self._client.post(
             f"{self._url}/api/generate",
-            json={"model": self._model, "prompt": prompt, "stream": False},
+            json={"model": model, "prompt": prompt, "stream": False},
         )
         resp.raise_for_status()
         data = resp.json()
         text = str(data.get("response", ""))
-        filename = subtask.id.replace(":", "_").replace("/", "_") + ".md"
-        (workdir / filename).write_text(text, encoding="utf-8")
+        # Write the deliverable as REAL files (with sub-folders), not one .md blob.
+        files = _parse_files(text) or _fallback_file(text, subtask)
+        for rel, content in files.items():
+            dest = workdir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8")
         return ExecResult(
-            ok=bool(text.strip()),
+            ok=bool(text.strip()) and bool(files),
             output=text[:500],
             tokens_in=int(data.get("prompt_eval_count", 0) or 0),
             tokens_out=int(data.get("eval_count", 0) or 0),
             cost_usd=0.0,  # local inference is free
-            artifacts={filename: text},
+            model=model,
+            artifacts=files,
         )

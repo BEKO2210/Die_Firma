@@ -3,7 +3,7 @@
 
 import type { APIRoute } from "astro";
 import { getDb } from "../../lib/db.ts";
-import { listMetrics, todaySpend } from "../../lib/queries.ts";
+import { agentStats, listMetrics, todaySpend } from "../../lib/queries.ts";
 
 export const prerender = false;
 
@@ -11,7 +11,12 @@ export const GET: APIRoute = () => {
   const db = getDb();
   const today = new Date().toISOString().slice(0, 10);
   return new Response(
-    JSON.stringify({ today, today_spend: todaySpend(db, today), daily: listMetrics(db) }),
+    JSON.stringify({
+      today,
+      today_spend: todaySpend(db, today),
+      daily: listMetrics(db),
+      agents: agentStats(db),
+    }),
     { headers: { "content-type": "application/json", "cache-control": "no-store" } },
   );
 };

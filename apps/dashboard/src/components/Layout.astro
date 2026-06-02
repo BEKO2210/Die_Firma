@@ -55,7 +55,17 @@ const { title = "Die Firma — Dashboard" } = Astro.props;
       header.app .conn { margin-left: auto; font-size: 12px; }
       header.app .conn[data-state="live"] { color: var(--done); }
       header.app .conn[data-state="polling"] { color: var(--planning); }
-      main { padding: 1rem; display: grid; gap: 1rem; }
+      /* Desktop-first: use the full screen width. The form + Kanban span the
+         whole row; the monitor/terminal/metrics flow side-by-side into as many
+         columns as fit, so wide screens are filled instead of a centred strip. */
+      main {
+        padding: 1rem;
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+        align-items: start;
+      }
+      section.panel.full { grid-column: 1 / -1; }
       section.panel {
         background: var(--panel);
         border: 1px solid var(--border);
@@ -91,6 +101,32 @@ const { title = "Die Firma — Dashboard" } = Astro.props;
       .metric .l { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
       .empty { color: var(--muted); font-style: italic; padding: 0.5rem; }
       a { color: var(--accent); }
+      .new-job form { display: grid; gap: 0.6rem; }
+      .new-job .row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-end; }
+      .new-job label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 12px; }
+      .new-job label.grow { flex: 1 1 100%; }
+      .new-job label > span { color: var(--muted); }
+      .new-job label > span em { font-style: normal; opacity: 0.7; }
+      .new-job input[type="text"], .new-job textarea, .new-job select {
+        background: var(--panel-2); color: var(--fg); border: 1px solid var(--border);
+        border-radius: 5px; padding: 0.4rem 0.5rem; font-family: var(--mono); font-size: 13px;
+      }
+      .new-job textarea { resize: vertical; }
+      .new-job input[type="text"]:focus, .new-job textarea:focus, .new-job select:focus {
+        outline: none; border-color: var(--accent);
+      }
+      .new-job label.check { flex-direction: row; align-items: center; gap: 0.4rem; }
+      .new-job label.check span { color: var(--fg); }
+      .new-job .actions { align-items: center; }
+      .new-job button {
+        background: var(--accent); color: var(--bg); border: 0; border-radius: 5px;
+        padding: 0.45rem 0.9rem; font-family: var(--mono); font-size: 13px; font-weight: 600;
+        cursor: pointer;
+      }
+      .new-job button:disabled { opacity: 0.5; cursor: progress; }
+      .new-job .form-msg { font-size: 12px; color: var(--muted); }
+      .new-job .form-msg[data-kind="ok"] { color: var(--done); }
+      .new-job .form-msg[data-kind="err"] { color: var(--failed); }
     </style>
   </head>
   <body>

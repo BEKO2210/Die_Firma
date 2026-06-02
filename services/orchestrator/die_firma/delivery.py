@@ -35,11 +35,19 @@ def deliver(
     out = outbox_root / job_id
     out.mkdir(parents=True, exist_ok=True)
 
-    # Copy every artifact produced in the workdir into the outbox.
+    # Copy every artifact produced in the workdir into the outbox, preserving the
+    # sub-folder structure the worker created (e.g. src/App.jsx). The .git dir for
+    # git_branch deliverables is internal and never copied.
     if workdir.is_dir():
-        for item in sorted(workdir.iterdir()):
-            if item.is_file():
-                shutil.copy2(item, out / item.name)
+        for item in sorted(workdir.rglob("*")):
+            rel = item.relative_to(workdir)
+            if ".git" in rel.parts:
+                continue
+            if item.is_dir():
+                (out / rel).mkdir(parents=True, exist_ok=True)
+            else:
+                (out / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, out / rel)
     (out / "SUMMARY.md").write_text(summary, encoding="utf-8")
 
     branch: str | None = None

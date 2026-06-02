@@ -47,6 +47,40 @@ export function listMetrics(db: DB, limit = 30): MetricsDailyRow[] {
     .all(Math.min(Math.max(limit, 1), 365)) as MetricsDailyRow[];
 }
 
+export interface AgentStat {
+  agent: string;
+  tasks: number;
+  active: number;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+}
+
+/**
+ * Per-agent activity, aggregated from the event log (not from each task's
+ * current agent — that always ends up "worker", which hid the dispatcher,
+ * reviewer and sentinel entirely). `tasks` = distinct tasks the agent touched,
+ * `active` = of those, the ones not yet terminal.
+ */
+export function agentStats(db: DB): AgentStat[] {
+  return db
+    .prepare(
+      `SELECT e.agent AS agent,
+              COUNT(DISTINCT e.task_id) AS tasks,
+              COUNT(DISTINCT CASE
+                WHEN t.status IS NULL OR t.status NOT IN ('done','failed','cancelled')
+                THEN e.task_id END) AS active,
+              CAST(COALESCE(SUM(e.tokens_in), 0) AS INTEGER)  AS tokens_in,
+              CAST(COALESCE(SUM(e.tokens_out), 0) AS INTEGER) AS tokens_out,
+              COALESCE(SUM(e.cost_usd), 0) AS cost_usd
+         FROM events e
+         LEFT JOIN tasks t ON t.id = e.task_id
+        WHERE e.agent IS NOT NULL
+        GROUP BY e.agent`,
+    )
+    .all() as AgentStat[];
+}
+
 /** Today's (UTC) accumulated spend — used by the orchestrator's cost guard. */
 export function todaySpend(db: DB, day: string): { cost_usd: number; tokens_in: number; tokens_out: number } {
   const row = db.prepare("SELECT cost_usd, tokens_in, tokens_out FROM metrics_daily WHERE date = ?").get(day) as

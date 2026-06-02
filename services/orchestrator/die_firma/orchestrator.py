@@ -19,7 +19,7 @@ from .cost import evaluate
 from .dag import validate_dag
 from .delivery import deliver
 from .dispatcher import Dispatcher
-from .executor import Executor
+from .executor import ExecResult, Executor
 from .ingest_client import IngestClient
 from .models import Job, Plan, Subtask
 from .retry import RetryExhausted
@@ -55,6 +55,53 @@ class WorkerFailure(RuntimeError):
 class JobOutcome:
     status: str
     detail: str = ""
+
+
+def _snippet(text: str, limit: int = 200) -> str:
+    """One-line, whitespace-collapsed preview of a deliverable."""
+    collapsed = " ".join(text.split())
+    return collapsed[:limit]
+
+
+def _describe(subtask: Subtask, res: ExecResult) -> str:
+    """Human-readable 'what this step did', for the live telemetry terminal."""
+    model = res.model or "mock"
+    body = _snippet(res.output, 160)
+    return f"{subtask.action} via {model}: {body}"[:500]
+
+
+def _build_summary(job: Job, title: str, plan: Plan, results: dict[str, ExecResult]) -> str:
+    """A SUMMARY.md that states exactly what was done, per step, with the model."""
+    models_used = sorted({r.model for r in results.values() if r.model})
+    model_line = ", ".join(models_used) if models_used else "mock"
+    lines = [
+        f"# {title}",
+        "",
+        f"- **Task-ID:** {job.id}",
+        f"- **Typ:** {job.type}",
+        f"- **Lieferform:** {job.deliverable_format}",
+        "- **Status:** done",
+        f"- **Modell(e):** {model_line}",
+        "",
+        "## Schritte — was wurde gemacht",
+        "",
+    ]
+    for st in plan.subtasks:
+        res = results.get(st.id)
+        model = res.model if res and res.model else "mock"
+        files = sorted(res.artifacts) if res else []
+        lines.append(f"### {st.action} — {st.title}")
+        lines.append(f"_Modell: {model}_")
+        if files:
+            lines.append("Dateien: " + ", ".join(f"`{f}`" for f in files))
+        preview = _snippet(res.output, 240) if res else ""
+        if preview:
+            lines += ["", f"> {preview}…"]
+        lines.append("")
+    all_files = sorted({f for r in results.values() for f in r.artifacts})
+    lines.append("## Artefakte")
+    lines += [f"- `{f}`" for f in all_files] or ["- (keine)"]
+    return "\n".join(lines) + "\n"
 
 
 class Orchestrator:
@@ -142,7 +189,7 @@ class Orchestrator:
         self._ingest.emit("status_changed", task_id=job.id, agent="worker", status="running")
         workdir = self._cfg.work / job.id
         try:
-            self._run_subtasks(job, plan, workdir, log)
+            results = self._run_subtasks(job, plan, workdir, log)
         except RetryExhausted:
             # Sentinel already emitted blocked + escalation.
             log.append("blocked: sub-task retries exhausted")
@@ -169,9 +216,7 @@ class Orchestrator:
             return JobOutcome("failed", result.detail)
 
         # -- deliver -----------------------------------------------------
-        summary = (
-            f"# Task {job.id}\n\ntype: {job.type}\nstatus: done\nsub-tasks: {len(plan.subtasks)}\n"
-        )
+        summary = _build_summary(job, str(task_data["title"]), plan, results)
         delivery = deliver(
             job_id=job.id,
             deliverable_format=job.deliverable_format,
@@ -191,9 +236,12 @@ class Orchestrator:
         return JobOutcome("done")
 
     # -- sub-task scheduling --------------------------------------------
-    def _run_subtasks(self, job: Job, plan: Plan, workdir: Path, log: RunLog) -> None:
+    def _run_subtasks(
+        self, job: Job, plan: Plan, workdir: Path, log: RunLog
+    ) -> dict[str, ExecResult]:
         by_id = {s.id: s for s in plan.subtasks}
         done: set[str] = set()
+        results: dict[str, ExecResult] = {}
         with ThreadPoolExecutor(max_workers=max(1, self._cfg.max_parallel)) as pool:
             while len(done) < len(by_id):
                 ready = [
@@ -205,11 +253,12 @@ class Orchestrator:
                 batch = ready[: max(1, self._cfg.max_parallel)]
                 futures = {pool.submit(self._run_one, job, s, workdir): s for s in batch}
                 for fut, st in futures.items():
-                    fut.result()  # raises RetryExhausted on terminal failure
+                    results[st.id] = fut.result()  # raises RetryExhausted on terminal failure
                     done.add(st.id)
                     log.append(f"sub-task {st.id} done")
+        return results
 
-    def _run_one(self, job: Job, subtask: Subtask, workdir: Path) -> None:
+    def _run_one(self, job: Job, subtask: Subtask, workdir: Path) -> ExecResult:
         self._ingest.emit(
             "subtask_updated",
             task_id=job.id,
@@ -217,6 +266,7 @@ class Orchestrator:
             agent="worker",
             status="running",
         )
+        holder: dict[str, ExecResult] = {}
 
         def attempt(_n: int) -> None:
             self._ingest.emit(
@@ -238,8 +288,18 @@ class Orchestrator:
             )
             if not res.ok:
                 raise WorkerFailure(res.output)
+            holder["res"] = res
 
         self._sentinel.guard(attempt, task_id=job.id, subtask_id=subtask.id)
+        res = holder["res"]
+        # Concrete telemetry: what this step actually did + which model produced it.
+        self._ingest.emit(
+            "log",
+            task_id=job.id,
+            subtask_id=subtask.id,
+            agent="worker",
+            message=_describe(subtask, res),
+        )
         self._ingest.emit(
             "subtask_updated",
             task_id=job.id,
@@ -247,3 +307,4 @@ class Orchestrator:
             agent="worker",
             status="done",
         )
+        return res

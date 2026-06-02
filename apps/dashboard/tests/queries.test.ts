@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type Database from "better-sqlite3";
 import { createDb } from "../src/lib/db.ts";
 import { applyEvent } from "../src/lib/project.ts";
-import { listEvents, listMetrics, listSubtasks, listTasks, todaySpend } from "../src/lib/queries.ts";
+import { agentStats, listEvents, listMetrics, listSubtasks, listTasks, todaySpend } from "../src/lib/queries.ts";
 import type { IngestEvent } from "../src/lib/types.ts";
 
 const TS = "2026-06-01T12:00:00.000Z";
@@ -42,5 +42,17 @@ describe("read queries", () => {
     expect(listMetrics(db).length).toBe(1);
     expect(todaySpend(db, "2026-06-01")).toMatchObject({ tokens_in: 4, tokens_out: 6 });
     expect(todaySpend(db, "1999-01-01")).toEqual({ cost_usd: 0, tokens_in: 0, tokens_out: 0 });
+  });
+
+  it("aggregates per-agent activity from the event log", () => {
+    // dispatcher plans (0 tokens), worker does the LLM work (tokens), on one task.
+    applyEvent(db, ev({ kind: "task_created", task_id: "t1", agent: "dispatcher", status: "queued" }));
+    applyEvent(db, ev({ kind: "tool_call_end", task_id: "t1", agent: "worker", tokens_in: 10, tokens_out: 5 }));
+    applyEvent(db, ev({ kind: "status_changed", task_id: "t1", agent: "worker", status: "done" }));
+    const byName = new Map(agentStats(db).map((a) => [a.agent, a]));
+    // dispatcher touched the task but burned no tokens — previously invisible.
+    expect(byName.get("dispatcher")).toMatchObject({ tasks: 1, active: 0, tokens_in: 0 });
+    // worker's tokens are attributed to the worker; task is terminal -> not active.
+    expect(byName.get("worker")).toMatchObject({ tasks: 1, active: 0, tokens_in: 10, tokens_out: 5 });
   });
 });
