@@ -46,6 +46,7 @@ def make_cfg(tmp_path: Path) -> Config:
         offline_fallback=False,
         cache_enabled=False,
         cache_dir=tmp_path / "state" / "cache",
+        plugins_dir=tmp_path / "tasks",
         quality_enabled=False,
         quality_min_score=75,
         quality_max_refine_passes=2,

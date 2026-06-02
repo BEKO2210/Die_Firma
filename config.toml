@@ -84,6 +84,13 @@ enabled = true
 # Cache location, relative to the repo root.
 dir = "state/cache"
 
+[plugins]
+# Task plugin discovery (review §1): every *.py in this directory is imported at
+# startup and may register a TaskPlugin (custom decomposition + an extra
+# acceptance validator) — extend behaviour without touching the core. See
+# tasks/README.md. Relative to the repo root.
+dir = "tasks"
+
 [concurrency]
 # Semaphore: max parallel tasks. Locked start value = 2 (prompt §1).
 max_parallel_tasks = 2

@@ -20,6 +20,7 @@ from .executor import make_executor
 from .ingest_client import IngestClient
 from .models import DELIVERABLE_FORMATS, TASK_TYPES
 from .orchestrator import Orchestrator
+from .plugins import default_registry, load_plugins_from_dir
 from .sentinel import Sentinel
 from .watcher import ApprovalRegistry, ProcessedRegistry, load_job_file, scan_inbox
 
@@ -49,7 +50,10 @@ def _build(cfg: Config) -> tuple[Orchestrator, IngestClient]:
         cache=ResultCache(cfg.cache_dir, enabled=cfg.cache_enabled),
     )
     sentinel = Sentinel(cfg.retry, ingest)
-    orch = Orchestrator(cfg, ingest, executor, Dispatcher(), sentinel)
+    # Load any custom task plugins from the configured tasks/ directory (§1).
+    registry = default_registry()
+    load_plugins_from_dir(cfg.plugins_dir, registry)
+    orch = Orchestrator(cfg, ingest, executor, Dispatcher(registry=registry), sentinel)
     return orch, ingest
 
 

@@ -215,6 +215,21 @@ class Orchestrator:
             log.append(f"failed review: {result.detail}")
             return JobOutcome("failed", result.detail)
 
+        # -- plugin validation (task-type-specific acceptance gate) ------
+        # The job's task plugin may enforce extra acceptance criteria beyond the
+        # verify command (review §1). A failure here fails the job like a review.
+        validation = self._dispatcher.validate(job, workdir)
+        if not validation.passed:
+            self._ingest.emit(
+                "status_changed",
+                task_id=job.id,
+                agent="reviewer",
+                status="failed",
+                message=f"plugin validation failed: {validation.detail}"[:500],
+            )
+            log.append(f"failed plugin validation: {validation.detail}")
+            return JobOutcome("failed", validation.detail)
+
         # -- quality gate (real review: critique + refine) ---------------
         # The verify command is a hard pass/fail gate; this is the content
         # review the old pipeline lacked — a reviewer model (and, for web

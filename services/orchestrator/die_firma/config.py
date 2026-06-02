@@ -61,6 +61,7 @@ class Config:
     offline_fallback: bool
     cache_enabled: bool
     cache_dir: Path
+    plugins_dir: Path
     quality_enabled: bool
     quality_min_score: int
     quality_max_refine_passes: int
@@ -131,6 +132,8 @@ def load_config(start: Path | None = None) -> Config:
         # Result cache (review §3) — content-addressed under state/.
         cache_enabled=bool(cache_raw.get("enabled", True)),
         cache_dir=(root / str(cache_raw.get("dir", "state/cache"))).resolve(),
+        # Task plugin discovery directory (review §1).
+        plugins_dir=(root / str(raw.get("plugins", {}).get("dir", "tasks"))).resolve(),
         quality_enabled=bool(quality_raw.get("enabled", True)),
         quality_min_score=int(quality_raw.get("min_score", 75)),
         quality_max_refine_passes=int(quality_raw.get("max_refine_passes", 2)),
