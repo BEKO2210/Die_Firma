@@ -65,14 +65,31 @@ def test_load_config_ok_and_secret_check(tmp_path, monkeypatch):
     repo = _write_repo(tmp_path)
     monkeypatch.setenv("DIE_FIRMA_INGEST_TOKEN", GOOD_TOKEN)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("DIE_FIRMA_EXECUTOR_MODE", raising=False)
+    monkeypatch.delenv("DIE_FIRMA_OLLAMA_MODEL", raising=False)
     cfg = load_config(start=repo)
     assert cfg.executor_mode == "mock"
     assert cfg.max_parallel == 2
     assert cfg.retry.backoff_seconds == (2.0, 4.0, 8.0)
     assert cfg.inbox == (repo / "inbox").resolve()
+    # Ollama defaults apply when [ollama] is absent from config.toml
+    assert cfg.ollama_url == "http://localhost:11434"
+    assert cfg.ollama_model == "llama3.2"
     # anthropic key only validated lazily
     with pytest.raises(SecretError):
         cfg.get_anthropic_key()
+
+
+def test_executor_mode_and_ollama_env_override(tmp_path, monkeypatch):
+    repo = _write_repo(tmp_path)
+    monkeypatch.setenv("DIE_FIRMA_INGEST_TOKEN", GOOD_TOKEN)
+    monkeypatch.setenv("DIE_FIRMA_EXECUTOR_MODE", "ollama")
+    monkeypatch.setenv("DIE_FIRMA_OLLAMA_MODEL", "qwen2.5-coder")
+    monkeypatch.setenv("DIE_FIRMA_OLLAMA_URL", "http://127.0.0.1:11434/")
+    cfg = load_config(start=repo)
+    assert cfg.executor_mode == "ollama"
+    assert cfg.ollama_model == "qwen2.5-coder"
+    assert cfg.ollama_url == "http://127.0.0.1:11434"  # trailing slash stripped
 
 
 def test_load_config_rejects_placeholder_token(tmp_path, monkeypatch):

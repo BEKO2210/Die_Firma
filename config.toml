@@ -19,14 +19,23 @@ poll_interval_seconds = 2.0
 url = "http://127.0.0.1:4321"
 
 [executor]
-# "mock"        -> deterministic, no API key, used for tests + E2E.
+# "ollama"      -> fully LOCAL via an Ollama server (default; no API key, free).
+# "mock"        -> deterministic, no server/key; used for tests + E2E + demo.
 # "claude_code" -> spawns `claude -p ... --output-format stream-json`
-#                  under firejail with a path whitelist.
-mode = "mock"
+#                  under firejail with a path whitelist (cloud, needs a key).
+# Override at runtime with DIE_FIRMA_EXECUTOR_MODE (CI/demo force "mock").
+mode = "ollama"
 # Sandbox wrapper for the claude_code executor. If firejail is missing the
 # executor refuses to run real workers (fail-closed) unless allow_unsandboxed.
 firejail_bin = "firejail"
 allow_unsandboxed = false
+
+[ollama]
+# Local Ollama server. Install: https://ollama.com  ·  pull a model first, e.g.
+#   ollama pull llama3.2        (general)   /   ollama pull qwen2.5-coder  (code)
+# Override with DIE_FIRMA_OLLAMA_URL / DIE_FIRMA_OLLAMA_MODEL.
+url = "http://localhost:11434"
+model = "llama3.2"
 
 [concurrency]
 # Semaphore: max parallel tasks. Locked start value = 2 (prompt §1).

@@ -113,3 +113,23 @@ README operations + DoD checklist, finalized DEPENDENCIES/RUN_LOG.
 
 **Open items:** real-host validation of Phases 3–5 (firejail sandbox, live
 Claude worker, systemd services, desktop notifications).
+
+## Run 6 — 2026-06-02 — Local operation via Ollama
+
+**Goal:** Run the whole system locally with Ollama (no API key), as the default.
+
+**Steps:** added `OllamaExecutor` (talks to a local Ollama `/api/generate` via
+httpx; writes the generated deliverable into the workdir; tokens from
+`prompt_eval_count`/`eval_count`; cost always 0). `make_executor` gains an
+`ollama` branch; `config.toml` gains `[ollama]` and defaults `[executor].mode`
+to `ollama`; `config.py` reads it with `DIE_FIRMA_EXECUTOR_MODE` /
+`DIE_FIRMA_OLLAMA_URL` / `DIE_FIRMA_OLLAMA_MODEL` env overrides. `./firma`
+gained an Ollama preflight (checks the server, pulls the model) and `demo`
+forces `mock`. `scripts/e2e.sh` + CI pin `DIE_FIRMA_EXECUTOR_MODE=mock` so the
+keyless E2E stays deterministic.
+
+**Result:** ruff + mypy --strict clean; pytest 68 passing @94% (core 100%).
+Verified the Ollama path end-to-end against a stub Ollama server: job → local
+model → status `done`, tokens counted (256), cost $0.0000, deliverables in
+`outbox/`. Mock E2E still green. A real Ollama server is the only thing a user
+must install for live local runs.

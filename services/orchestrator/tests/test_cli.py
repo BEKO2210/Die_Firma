@@ -36,6 +36,8 @@ def make_cfg(tmp_path: Path) -> Config:
         executor_mode="mock",
         firejail_bin="firejail",
         allow_unsandboxed=False,
+        ollama_url="http://localhost:11434",
+        ollama_model="llama3.2",
         max_parallel=2,
         retry=RetryPolicy(3, (2.0, 4.0, 8.0)),
         daily_usd_limit=10.0,
