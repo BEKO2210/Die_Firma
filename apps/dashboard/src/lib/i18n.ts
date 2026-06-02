@@ -76,6 +76,7 @@ const EN: Catalogue = {
   "role.worker": "Execution",
   "role.reviewer": "Review",
   "role.sentinel": "Sentinel",
+  "theme.toggle": "Toggle light/dark theme",
 };
 
 const DE: Catalogue = {
@@ -144,6 +145,7 @@ const DE: Catalogue = {
   "role.worker": "Ausführung",
   "role.reviewer": "Review",
   "role.sentinel": "Wächter",
+  "theme.toggle": "Hell/Dunkel umschalten",
 };
 
 const CATALOGUES: Record<Lang, Catalogue> = { en: EN, de: DE };

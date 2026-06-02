@@ -44,6 +44,8 @@ const bootstrap = {
     <h1>DIE&nbsp;FIRMA</h1>
     <span class="sub">{t("app.subtitle")}</span>
     <span class="conn" id="conn" data-state="polling" data-testid="conn-state">{t("conn.polling")}</span>
+    <button class="theme-toggle" id="theme-toggle" type="button" data-testid="theme-toggle"
+            aria-label={t("theme.toggle")} title={t("theme.toggle")}></button>
   </header>
 
   <main class="workspace">
@@ -366,6 +368,20 @@ const bootstrap = {
       if (mr.live) live = mr.live;
       renderAll();
     }
+
+    // Theme toggle (review §8): flip data-theme on <html>, persist the choice,
+    // and reflect the *next* state in the icon (☀ when dark -> switch to light).
+    function syncThemeIcon() {
+      const btn = $("#theme-toggle");
+      if (btn) btn.textContent = document.documentElement.dataset.theme === "light" ? "☾" : "☀";
+    }
+    syncThemeIcon();
+    $("#theme-toggle")?.addEventListener("click", () => {
+      const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+      document.documentElement.dataset.theme = next;
+      try { localStorage.setItem("df-theme", next); } catch { /* storage disabled */ }
+      syncThemeIcon();
+    });
 
     // Bootstrap from SSR snapshot for instant first paint.
     try {

@@ -12,8 +12,19 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="light dark" />
     <title>{title}</title>
+    <!-- Set the theme before first paint to avoid a flash (review §8): saved
+         preference wins, otherwise follow the OS. -->
+    <script is:inline>
+      (() => {
+        try {
+          const saved = localStorage.getItem("df-theme");
+          const sys = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+          document.documentElement.dataset.theme = saved || sys;
+        } catch { document.documentElement.dataset.theme = "dark"; }
+      })();
+    </script>
     <style is:global>
       :root {
         --bg: #0d1117;
@@ -42,8 +53,42 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
         --accent-2: #a371f7;
         --accent-3: #3fb950;
         --glow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+        --term-bg: #010409;
+      }
+      /* Light theme (review §8): override the surfaces + text; status hues keep
+         enough contrast as badge backgrounds. Toggled via [data-theme] on <html>. */
+      :root[data-theme="light"] {
+        --bg: #ffffff;
+        --panel: #f6f8fa;
+        --panel-2: #eaeef2;
+        --border: #d0d7de;
+        --fg: #1f2328;
+        --muted: #59636e;
+        --accent: #0969da;
+        --queued: #6e7781;
+        --planning: #9a6700;
+        --running: #0969da;
+        --review: #8250df;
+        --blocked: #cf222e;
+        --done: #1a7f37;
+        --failed: #cf222e;
+        --cancelled: #6e7781;
+        --awaiting_approval: #bc4c00;
+        --agent-dispatcher: #0969da;
+        --agent-worker: #1a7f37;
+        --agent-reviewer: #8250df;
+        --agent-sentinel: #bc4c00;
+        --accent-2: #8250df;
+        --accent-3: #1a7f37;
+        --term-bg: #0d1117;
       }
       * { box-sizing: border-box; }
+      /* Visible keyboard focus everywhere (review §8 — a11y/keyboard nav). */
+      :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
       html, body { height: 100%; }
       body {
         margin: 0;
@@ -85,6 +130,15 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
         display: inline-flex; align-items: center; gap: 0.4rem;
         padding: 0.2rem 0.6rem; border: 1px solid var(--border); border-radius: 999px;
       }
+      /* Theme toggle (review §8): a small icon button next to the connection pill. */
+      header.app .theme-toggle {
+        margin-left: 0.6rem; background: var(--panel-2); color: var(--fg);
+        border: 1px solid var(--border); border-radius: 999px; cursor: pointer;
+        width: 30px; height: 30px; font-size: 14px; line-height: 1;
+        display: inline-flex; align-items: center; justify-content: center;
+        transition: border-color 200ms ease, background-color 200ms ease;
+      }
+      header.app .theme-toggle:hover { border-color: var(--accent); }
       header.app .conn::before {
         content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted);
       }
@@ -214,7 +268,7 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
         flex: 1 1 auto;
         min-height: 0;
         overflow-y: auto;
-        background: #010409;
+        background: var(--term-bg);
         border: 1px solid var(--border);
         border-radius: 6px;
         padding: 0.5rem 0.6rem;
