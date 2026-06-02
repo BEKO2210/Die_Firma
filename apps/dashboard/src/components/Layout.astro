@@ -2,12 +2,13 @@
 // Shared shell: dark, high-density, monospace. read-only dashboard.
 interface Props {
   title?: string;
+  lang?: string;
 }
-const { title = "Die Firma — Dashboard" } = Astro.props;
+const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
 ---
 
 <!doctype html>
-<html lang="de">
+<html lang={lang}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />

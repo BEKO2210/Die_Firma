@@ -32,6 +32,7 @@ def make_cfg(tmp_path: Path) -> Config:
         runlog=tmp_path / "runlog",
         state=tmp_path / "state",
         poll_interval=2.0,
+        language="en",
         dashboard_url="http://127.0.0.1:4321",
         executor_mode="mock",
         firejail_bin="firejail",

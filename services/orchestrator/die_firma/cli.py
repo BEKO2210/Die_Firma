@@ -17,6 +17,7 @@ from .cache import ResultCache
 from .config import Config, load_config
 from .dispatcher import Dispatcher
 from .executor import make_executor
+from .i18n import Translator, load_translator
 from .ingest_client import IngestClient
 from .models import DELIVERABLE_FORMATS, TASK_TYPES
 from .orchestrator import Orchestrator
@@ -27,6 +28,10 @@ from .watcher import ApprovalRegistry, ProcessedRegistry, load_job_file, scan_in
 
 # Statuses that terminate processing (won't be retried automatically).
 _TERMINAL = {"done", "failed", "blocked"}
+
+
+def _tr(cfg: Config) -> Translator:
+    return load_translator(cfg.language)
 
 
 def _build(cfg: Config) -> tuple[Orchestrator, IngestClient]:
@@ -65,7 +70,7 @@ def cmd_submit(cfg: Config, args: argparse.Namespace) -> int:
     cfg.inbox.mkdir(parents=True, exist_ok=True)
     if src.resolve() != dest.resolve():
         shutil.copy2(src, dest)
-    print(f"submitted {job.id} ({job.type}) -> {dest}")
+    print(_tr(cfg).t("cli.submitted", id=job.id, type=job.type, dest=dest))
     return 0
 
 
@@ -91,13 +96,13 @@ def cmd_new(cfg: Config, args: argparse.Namespace) -> int:
     dest = cfg.inbox / f"{job_id}.md"
     dest.write_text(text, encoding="utf-8")
     load_job_file(dest)  # fail loudly if the generated job is somehow invalid
-    print(f"created {job_id} ({args.type}) -> {dest}")
+    print(_tr(cfg).t("cli.created", id=job_id, type=args.type, dest=dest))
     return 0
 
 
 def cmd_approve(cfg: Config, args: argparse.Namespace) -> int:
     ApprovalRegistry(cfg.state).approve(args.id)
-    print(f"approved {args.id}")
+    print(_tr(cfg).t("cli.approved", id=args.id))
     return 0
 
 
@@ -110,7 +115,7 @@ def cmd_status(cfg: Config, _args: argparse.Namespace) -> int:
     finally:
         ingest.close()
     if not tasks:
-        print("(no tasks)")
+        print(_tr(cfg).t("cli.no_tasks"))
         return 0
     for t in tasks:
         print(f"{t['id']:<24} {str(t['status']):<16} {t['type']:<12} ${t['total_cost_usd']:.4f}")
@@ -129,7 +134,7 @@ def cmd_reset(cfg: Config, _args: argparse.Namespace) -> int:
                     shutil.rmtree(child)
                 else:
                     child.unlink()
-    print("reset orchestrator state (processed/approved, work/outbox/runlog)")
+    print(_tr(cfg).t("cli.reset"))
     return 0
 
 
@@ -152,16 +157,24 @@ def _process_inbox_once(cfg: Config, orch: Orchestrator) -> list[tuple[str, str]
 
 def cmd_run(cfg: Config, args: argparse.Namespace) -> int:
     orch, ingest = _build(cfg)
+    tr = _tr(cfg)
     try:
         if args.once:
             results = _process_inbox_once(cfg, orch)
             for job_id, status in results:
-                print(f"{job_id}: {status}")
+                print(tr.t("cli.job_status", id=job_id, status=status))
             return 0
-        print(f"watching {cfg.inbox} (poll {cfg.poll_interval}s, executor={cfg.executor_mode})")
+        print(
+            tr.t(
+                "cli.watching",
+                inbox=cfg.inbox,
+                interval=cfg.poll_interval,
+                executor=cfg.executor_mode,
+            )
+        )
         while True:
             for job_id, status in _process_inbox_once(cfg, orch):
-                print(f"{job_id}: {status}")
+                print(tr.t("cli.job_status", id=job_id, status=status))
             time.sleep(cfg.poll_interval)
     finally:
         ingest.close()

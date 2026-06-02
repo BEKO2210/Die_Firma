@@ -36,6 +36,10 @@ die-firma = "die_firma.cli:main"
 [tool.setuptools.packages.find]
 include = ["die_firma*"]
 
+[tool.setuptools.package-data]
+# Ship the i18n catalogues with the package (review §5).
+die_firma = ["locales/*.json"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

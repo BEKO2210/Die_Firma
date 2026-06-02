@@ -47,6 +47,7 @@ class Config:
     runlog: Path
     state: Path
     poll_interval: float
+    language: str
     dashboard_url: str
     executor_mode: str
     firejail_bin: str
@@ -107,6 +108,8 @@ def load_config(start: Path | None = None) -> Config:
         runlog=p("runlog_dir"),
         state=p("state_dir"),
         poll_interval=float(general["poll_interval_seconds"]),
+        # UI/CLI language (review §5). Env override for quick switching.
+        language=os.environ.get("DIE_FIRMA_LANG", str(general.get("language", "en"))),
         dashboard_url=os.environ.get("DIE_FIRMA_DASHBOARD_URL", raw["dashboard"]["url"]).rstrip(
             "/"
         ),

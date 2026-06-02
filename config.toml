@@ -13,6 +13,9 @@ runlog_dir  = "runlog"
 state_dir   = "state"
 # How often the watcher polls inbox/ for new *.md drops (seconds).
 poll_interval_seconds = 2.0
+# UI/CLI language (review §5): "en" or "de" (catalogues in die_firma/locales/
+# and apps/dashboard/src/lib/i18n.ts). Override with DIE_FIRMA_LANG.
+language = "en"
 
 [dashboard]
 # Read-model + ingest live here. Loopback only (prompt §7).
