@@ -14,6 +14,8 @@ export DASHBOARD_HOST="127.0.0.1"
 export DASHBOARD_PORT="$PORT"
 export DIE_FIRMA_DASHBOARD_URL="http://127.0.0.1:${PORT}"
 export DIE_FIRMA_DB_PATH="$ROOT/state/dashboard.e2e.db"
+# Deterministic + keyless: force the mock executor (config.toml defaults to ollama).
+export DIE_FIRMA_EXECUTOR_MODE=mock
 # A real (non-placeholder) high-entropy token for the loopback-only ingest.
 export DIE_FIRMA_INGEST_TOKEN="${DIE_FIRMA_INGEST_TOKEN:-e2e_$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
 

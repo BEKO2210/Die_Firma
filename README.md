@@ -50,11 +50,13 @@ flowchart LR
 - **4 core agents:** `dispatcher` (decompose → DAG, ≤2 levels), `worker`
   (execute), `reviewer` (test/validate), `sentinel` (errors, retry,
   loop-breaker).
-- **Execution engine:** worker = Claude Code headless
-  (`claude -p … --output-format stream-json`) under `firejail` with a path
-  whitelist; dispatcher/reviewer/sentinel = Anthropic Python SDK (tiered
-  models). An **executor abstraction** offers `mock | claude_code`; `mock` is
-  deterministic and enables tests/E2E with no API key.
+- **Execution engine:** the **worker** runs your jobs. Pick the executor in
+  `config.toml`:
+  - **`ollama`** *(default)* — fully **local** via an [Ollama](https://ollama.com)
+    server. No API key, no cloud, $0 cost.
+  - **`mock`** — deterministic, no server/key (tests, CI, `./firma demo`).
+  - **`claude_code`** — headless Claude Code under `firejail` (cloud, needs a
+    key). dispatcher/reviewer/sentinel can use the Anthropic SDK (tiered models).
 - **Concurrency:** semaphore, start = 2 parallel tasks.
 - **Retry:** 3 attempts, exponential backoff (2s/4s/8s) → `blocked` →
   `sentinel` → escalation (red flag + `notify-send`).
@@ -108,6 +110,27 @@ it move across the board. Open the printed URL (http://127.0.0.1:4321).
 `./firma new` accepts `--type {code_gen|code_review|automation|data_prep}`,
 `--priority {1,2,3}`, `--deliverable {git_branch|file|report}`, `--verify "cmd"`
 and `--approve`. Priority‑1 / `--approve` jobs wait for `./firma approve <id>`.
+
+### Run it fully local with Ollama (default, no API key)
+
+The default executor is **`ollama`** — everything runs on your machine, free.
+
+```bash
+# 1) Install Ollama (https://ollama.com) and pull a model
+ollama pull llama3.2          # general — or: ollama pull qwen2.5-coder (code)
+
+# 2) Start Die Firma — it detects Ollama and uses it automatically
+./firma start
+./firma new "Write a Python function that reverses a string"
+```
+
+`./firma start` runs a preflight: it checks the Ollama server, and pulls the
+configured model if it's missing. Change the model anytime in `config.toml`
+(`[ollama] model = …`) or per run via `DIE_FIRMA_OLLAMA_MODEL=…`. Because local
+inference is free, the daily cost guard simply never trips.
+
+> Just want to see the pipeline without installing a model? `./firma demo`
+> forces the deterministic `mock` executor — instant, no Ollama, no key.
 
 <details>
 <summary>Manual / advanced (without the launcher)</summary>

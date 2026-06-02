@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from conftest import make_job
 
@@ -5,6 +6,7 @@ from die_firma import executor as exec_mod
 from die_firma.executor import (
     ClaudeCodeExecutor,
     MockExecutor,
+    OllamaExecutor,
     _usage_from_stream,
     build_firejail_command,
     make_executor,
@@ -46,8 +48,61 @@ def test_make_executor():
         "claude_code", firejail_bin="firejail", allow_unsandboxed=True, worker_model="m"
     )
     assert cc.mode == "claude_code"
+    oll = make_executor(
+        "ollama",
+        firejail_bin="firejail",
+        allow_unsandboxed=False,
+        worker_model="m",
+        ollama_url="http://localhost:11434",
+        ollama_model="llama3.2",
+    )
+    assert oll.mode == "ollama"
     with pytest.raises(ValueError, match="unknown executor mode"):
         make_executor("bogus", firejail_bin="firejail", allow_unsandboxed=False, worker_model="m")
+
+
+def test_ollama_executor_writes_deliverable_and_tokens(tmp_path):
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        captured["url"] = str(request.url)
+        captured["body"] = _json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "response": "print('hello from local model')",
+                "prompt_eval_count": 42,
+                "eval_count": 17,
+                "done": True,
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    ex = OllamaExecutor("http://localhost:11434/", "llama3.2", client=client)
+    job = make_job()
+    st = Subtask(id="job1:implement", title="Implement", action="implement")
+    res = ex.run(job, st, tmp_path)
+
+    assert res.ok is True
+    assert res.tokens_in == 42 and res.tokens_out == 17
+    assert res.cost_usd == 0.0  # local inference is free
+    assert captured["url"].endswith("/api/generate")
+    assert captured["body"]["model"] == "llama3.2"
+    assert captured["body"]["stream"] is False
+    # ':' in the subtask id is sanitised for the filename
+    written = (tmp_path / "job1_implement.md").read_text(encoding="utf-8")
+    assert "hello from local model" in written
+
+
+def test_ollama_executor_empty_response_is_not_ok(tmp_path):
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"response": "  "}))
+    )
+    ex = OllamaExecutor("http://localhost:11434", "llama3.2", client=client)
+    res = ex.run(make_job(), Subtask(id="s1", title="t", action="a"), tmp_path)
+    assert res.ok is False  # empty generation -> sentinel retries
 
 
 def test_claude_executor_fail_closed_without_firejail(monkeypatch, tmp_path):

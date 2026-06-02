@@ -37,6 +37,8 @@ def _build(cfg: Config) -> tuple[Orchestrator, IngestClient]:
         ingest_token=cfg.ingest_token,
         hooks_dir=cfg.root / "hooks",
         settings_template=cfg.root / ".claude" / "settings.template.json",
+        ollama_url=cfg.ollama_url,
+        ollama_model=cfg.ollama_model,
     )
     sentinel = Sentinel(cfg.retry, ingest)
     orch = Orchestrator(cfg, ingest, executor, Dispatcher(), sentinel)

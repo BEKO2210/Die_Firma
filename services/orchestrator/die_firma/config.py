@@ -51,6 +51,8 @@ class Config:
     executor_mode: str
     firejail_bin: str
     allow_unsandboxed: bool
+    ollama_url: str
+    ollama_model: str
     max_parallel: int
     retry: RetryPolicy
     daily_usd_limit: float
@@ -73,6 +75,7 @@ def load_config(start: Path | None = None) -> Config:
 
     general = raw["general"]
     retry_raw = raw["retry"]
+    ollama_raw = raw.get("ollama", {})
 
     def p(name: str) -> Path:
         return (root / str(general[name])).resolve()
@@ -88,9 +91,17 @@ def load_config(start: Path | None = None) -> Config:
         dashboard_url=os.environ.get("DIE_FIRMA_DASHBOARD_URL", raw["dashboard"]["url"]).rstrip(
             "/"
         ),
-        executor_mode=raw["executor"]["mode"],
+        # Env override lets CI / the demo / tests force "mock" without editing
+        # config.toml (which defaults to local "ollama").
+        executor_mode=os.environ.get("DIE_FIRMA_EXECUTOR_MODE", raw["executor"]["mode"]),
         firejail_bin=raw["executor"]["firejail_bin"],
         allow_unsandboxed=bool(raw["executor"]["allow_unsandboxed"]),
+        ollama_url=os.environ.get(
+            "DIE_FIRMA_OLLAMA_URL", str(ollama_raw.get("url", "http://localhost:11434"))
+        ).rstrip("/"),
+        ollama_model=os.environ.get(
+            "DIE_FIRMA_OLLAMA_MODEL", str(ollama_raw.get("model", "llama3.2"))
+        ),
         max_parallel=int(raw["concurrency"]["max_parallel_tasks"]),
         retry=RetryPolicy(
             max_attempts=int(retry_raw["max_attempts"]),

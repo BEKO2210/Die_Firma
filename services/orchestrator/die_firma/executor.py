@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+import httpx
+
 from .models import Job, Subtask
 
 
@@ -72,10 +74,14 @@ def make_executor(
     ingest_token: str | None = None,
     hooks_dir: Path | None = None,
     settings_template: Path | None = None,
+    ollama_url: str = "http://localhost:11434",
+    ollama_model: str = "llama3.2",
 ) -> Executor:
     """Factory selecting the executor from config.toml's [executor].mode."""
     if mode == "mock":
         return MockExecutor()
+    if mode == "ollama":
+        return OllamaExecutor(ollama_url, ollama_model)
     if mode == "claude_code":
         return ClaudeCodeExecutor(
             firejail_bin,
@@ -230,4 +236,58 @@ class ClaudeCodeExecutor:
             tokens_in=tin,
             tokens_out=tout,
             cost_usd=cost,
+        )
+
+
+def _worker_prompt(job: Job, subtask: Subtask) -> str:
+    return (
+        "You are a worker agent in an autonomous engineering pipeline. "
+        f"Job {job.id} (type: {job.type}). Sub-task: {subtask.title}.\n\n"
+        f"Task description:\n{job.body}\n\n"
+        f"Action to perform: {subtask.action}.\n"
+        "Respond with the concrete deliverable for this sub-task (code, report, "
+        "or data as appropriate). Output only the deliverable content."
+    )
+
+
+class OllamaExecutor:
+    """Runs the worker against a LOCAL Ollama server — no API key, no cloud.
+
+    Talks to Ollama's HTTP API (`POST /api/generate`). The generated text is
+    written into the sub-task workdir as the deliverable; token counts come from
+    Ollama's `prompt_eval_count` / `eval_count`. Local inference is free, so
+    cost is always 0 (the daily cost guard simply never trips)."""
+
+    mode = "ollama"
+
+    def __init__(
+        self,
+        url: str,
+        model: str,
+        client: httpx.Client | None = None,
+        timeout: float = 600.0,
+    ) -> None:
+        self._url = url.rstrip("/")
+        self._model = model
+        self._client = client or httpx.Client(timeout=timeout)
+
+    def run(self, job: Job, subtask: Subtask, workdir: Path) -> ExecResult:
+        workdir.mkdir(parents=True, exist_ok=True)
+        prompt = _worker_prompt(job, subtask)
+        resp = self._client.post(
+            f"{self._url}/api/generate",
+            json={"model": self._model, "prompt": prompt, "stream": False},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = str(data.get("response", ""))
+        filename = subtask.id.replace(":", "_").replace("/", "_") + ".md"
+        (workdir / filename).write_text(text, encoding="utf-8")
+        return ExecResult(
+            ok=bool(text.strip()),
+            output=text[:500],
+            tokens_in=int(data.get("prompt_eval_count", 0) or 0),
+            tokens_out=int(data.get("eval_count", 0) or 0),
+            cost_usd=0.0,  # local inference is free
+            artifacts={filename: text},
         )

@@ -36,6 +36,14 @@ Python 3.11.15, pip 24.0.
 | pytest-cov | latest | 7.1.0 | coverage gate on logic-critical core |
 | types-PyYAML | latest | 6.0.12.x | mypy stubs |
 
+## Optional external runtimes (not Python/Node packages)
+
+- **Ollama** (https://ollama.com) — the default `ollama` executor talks to a
+  local Ollama server over HTTP (`/api/generate`) using `httpx` (already a
+  dependency). No extra pip package is needed. Install Ollama separately and
+  `ollama pull <model>` (default `llama3.2`). Fully local, no API key, $0 cost.
+  Verified here against a stub Ollama server (real server not installed in CI).
+
 ## Known environment gaps (cannot be verified in this container)
 
 - **firejail** is not installed → the `claude_code` executor's sandbox path
