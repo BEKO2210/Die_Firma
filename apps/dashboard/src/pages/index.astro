@@ -7,6 +7,7 @@ import {
   listMetrics,
   listSubtasks,
   listTasks,
+  liveRates,
   todaySpend,
 } from "../lib/queries.ts";
 
@@ -26,18 +27,21 @@ const bootstrap = {
   today,
   today_spend: todaySpend(db, today),
   agents: agentStats(db),
+  live: liveRates(db, Date.now()),
 };
 ---
 
 <Layout>
+  <div class="shell">
   <header class="app">
     <h1>DIE&nbsp;FIRMA</h1>
     <span class="sub">autonome digitale Agentur — Aufträge aufgeben &amp; live verfolgen</span>
     <span class="conn" id="conn" data-state="polling" data-testid="conn-state">polling</span>
   </header>
 
-  <main>
-    <section class="panel new-job full" aria-labelledby="newjob-h">
+  <main class="workspace">
+   <div class="stack">
+    <section class="panel new-job" aria-labelledby="newjob-h">
       <h2 id="newjob-h">Neuer Auftrag</h2>
       <form id="job-form" data-testid="job-form" autocomplete="off">
         <div class="row">
@@ -98,7 +102,7 @@ const bootstrap = {
       </form>
     </section>
 
-    <section class="panel full" aria-labelledby="kanban-h">
+    <section class="panel" aria-labelledby="kanban-h">
       <h2 id="kanban-h">Kanban</h2>
       <div class="kanban" id="kanban" data-testid="kanban">
         <div class="col"><h3>Queue <span class="count" data-count="queue">0</span></h3><div data-col="queue"></div></div>
@@ -110,24 +114,40 @@ const bootstrap = {
 
     <section class="panel" aria-labelledby="agents-h">
       <h2 id="agents-h">Agenten-Monitor</h2>
-      <table data-testid="agents">
-        <thead>
-          <tr><th scope="col">Agent</th><th scope="col">Aktiv / Tasks</th><th scope="col">Tokens (in/out)</th><th scope="col">$ Kosten</th></tr>
-        </thead>
-        <tbody id="agents-body"></tbody>
-      </table>
+      <div class="agents" id="agents-body" data-testid="agents"></div>
+      <p class="agents-legend">Farbe = Agent · „arbeitet" = Aktivität in den letzten 12&nbsp;s · Balken = Tokenanteil relativ zum aktivsten Agenten · Text = aktuelle Aktion</p>
     </section>
+   </div>
 
-    <section class="panel" aria-labelledby="term-h">
-      <h2 id="term-h">Live-Terminal</h2>
-      <div class="term" id="term" data-testid="terminal" role="log" aria-live="polite" aria-label="Telemetrie-Stream"></div>
-    </section>
+    <section class="panel terminal-panel" aria-label="Terminal und Chat">
+      <div class="rtabs" role="tablist" aria-label="Ansicht">
+        <button class="rtab active" type="button" role="tab" aria-selected="true" data-tab="terminal">
+          Live-Terminal <span class="pps" id="term-rate" aria-hidden="true"></span>
+        </button>
+        <button class="rtab" type="button" role="tab" aria-selected="false" data-tab="chat">Chat</button>
+      </div>
 
-    <section class="panel" aria-labelledby="metrics-h">
-      <h2 id="metrics-h">Metriken</h2>
-      <div class="metrics-grid" id="metrics" data-testid="metrics"></div>
+      <div class="rview" data-view="terminal">
+        <div class="term" id="term" data-testid="terminal" role="log" aria-live="polite" aria-label="Telemetrie-Stream"></div>
+      </div>
+
+      <div class="rview is-hidden" data-view="chat">
+        <div class="chat-controls">
+          <label class="sr-only" for="chat-model">Modell</label>
+          <select id="chat-model" data-testid="chat-model" aria-label="Chat-Modell"></select>
+          <label class="rag"><input type="checkbox" id="chat-rag" checked /> <span>Job-Kontext</span></label>
+        </div>
+        <div class="chat-log" id="chat-log" data-testid="chat-log" role="log" aria-live="polite" aria-label="Chatverlauf"></div>
+        <form id="chat-form" data-testid="chat-form" autocomplete="off">
+          <textarea id="chat-input" rows="2" placeholder="Frag die LLM etwas zu deinen Deliverables …" aria-label="Nachricht"></textarea>
+          <button id="chat-send" type="submit">Senden</button>
+        </form>
+      </div>
     </section>
   </main>
+
+  <footer class="metrics-bar" id="metrics" data-testid="metrics" aria-label="Live-Metriken"></footer>
+  </div>
 
   <script type="application/json" id="bootstrap" set:html={JSON.stringify(bootstrap)}></script>
 
@@ -142,7 +162,15 @@ const bootstrap = {
       status: string | null; message: string | null; ts: string;
     };
     type Metric = { date: string; tokens_in: number; tokens_out: number; cost_usd: number; tasks_done: number; tasks_failed: number };
-    type AgentStat = { agent: string; tasks: number; active: number; tokens_in: number; tokens_out: number; cost_usd: number };
+    type AgentStat = {
+      agent: string; tasks: number; active: number; tokens_in: number; tokens_out: number; cost_usd: number;
+      last_kind: string | null; last_status: string | null; last_message: string | null; last_ts: string | null;
+    };
+    type Live = {
+      window_sec: number; tokens_per_sec: number; tokens_in_per_sec: number; tokens_out_per_sec: number;
+      events_per_sec: number; active_tasks: number;
+      last_event_ts: string | null; idle_sec: number | null;
+    };
 
     const COLS: Record<string, string> = {
       queued: "queue", awaiting_approval: "queue",
@@ -166,6 +194,10 @@ const bootstrap = {
     let agents: AgentStat[] = [];
     let todaySpend = { cost_usd: 0, tokens_in: 0, tokens_out: 0 };
     let today = "";
+    let live: Live = {
+      window_sec: 60, tokens_per_sec: 0, tokens_in_per_sec: 0, tokens_out_per_sec: 0,
+      events_per_sec: 0, active_tasks: 0, last_event_ts: null, idle_sec: null,
+    };
 
     function renderKanban() {
       const counts: Record<string, number> = { queue: 0, progress: 0, review: 0, done: 0 };
@@ -174,11 +206,14 @@ const bootstrap = {
         const col = COLS[t.status ?? "queued"] ?? "queue";
         counts[col] = (counts[col] ?? 0) + 1;
         buckets[col]!.push(
-          `<article class="card" data-testid="task-card" data-task-id="${esc(t.id)}">
+          `<article class="card" data-testid="task-card" data-task-id="${esc(t.id)}" style="--sc:var(--${esc(t.status ?? "queued")})">
              <div class="id">${esc(t.id.slice(0, 8))} · ${esc(t.type ?? "?")} · P${esc(t.priority ?? "?")}</div>
              <p class="title">${esc(t.title ?? "(ohne Titel)")}</p>
              <div>${badge(t.status)} ${t.agent ? `<span class="badge">${esc(t.agent)}</span>` : ""}</div>
              ${t.error ? `<div class="id" style="color:var(--failed)">${esc(t.error)}</div>` : ""}
+             ${t.status === "awaiting_approval"
+               ? `<button class="approve" type="button" data-approve="${esc(t.id)}" data-testid="approve-btn">Freigeben</button>`
+               : ""}
            </article>`,
         );
       }
@@ -189,17 +224,46 @@ const bootstrap = {
       }
     }
 
+    // What each agent is responsible for + how to read its latest event.
+    const AGENT_ROLE: Record<string, string> = {
+      dispatcher: "Planung", worker: "Ausführung", reviewer: "Review", sentinel: "Wächter",
+    };
+    function agentAction(s: AgentStat | undefined): string {
+      if (!s) return "—";
+      if (s.last_message) return s.last_message;
+      const parts = [s.last_kind, s.last_status].filter(Boolean);
+      return parts.length ? parts.join(" · ") : "—";
+    }
+    // "busy" = touched something in the last 12s, or has an unfinished task.
+    function isBusy(s: AgentStat | undefined): boolean {
+      if (!s) return false;
+      if ((s.active ?? 0) > 0) return true;
+      if (!s.last_ts) return false;
+      return Date.now() - Date.parse(s.last_ts) < 12_000;
+    }
+
     function renderAgents() {
       const body = $("#agents-body")!;
       const byName = new Map(agents.map((a) => [a.agent, a]));
+      // Scale token bars relative to the busiest agent this render.
+      const maxTok = Math.max(1, ...agents.map((a) => a.tokens_in + a.tokens_out));
       body.innerHTML = AGENTS.map((a) => {
         const s = byName.get(a);
-        const tasksN = s?.tasks ?? 0;
-        const active = s?.active ?? 0;
         const tin = s?.tokens_in ?? 0;
         const tout = s?.tokens_out ?? 0;
-        const cost = s?.cost_usd ?? 0;
-        return `<tr><td>${a}</td><td>${active} / ${tasksN}</td><td>${tin}/${tout}</td><td>$${cost.toFixed(4)}</td></tr>`;
+        const busy = isBusy(s);
+        const pct = Math.round(((tin + tout) / maxTok) * 100);
+        return `<article class="agent-card${busy ? " busy" : ""}" data-agent="${esc(a)}" data-testid="agent-card">
+            <div class="agent-head">
+              <span class="agent-dot"></span>
+              <span class="name">${esc(a)}</span>
+              <span class="role">${esc(AGENT_ROLE[a] ?? "")}</span>
+              <span class="agent-state">${busy ? "arbeitet" : "bereit"}</span>
+            </div>
+            <div class="agent-action" title="${esc(agentAction(s))}">${esc(agentAction(s))}</div>
+            <div class="agent-meta"><span>Tasks ${s?.active ?? 0}/${s?.tasks ?? 0}</span><span>${fmt(tin)}↓ ${fmt(tout)}↑ tok</span></div>
+            <div class="agent-bar" title="Tokenanteil ${pct}% (relativ zum aktivsten Agenten)"><i style="width:${pct}%"></i></div>
+          </article>`;
       }).join("");
     }
 
@@ -216,19 +280,46 @@ const bootstrap = {
         .join("");
     }
 
+    // Compact number formatting so tiles never overflow (1.2k, 3.4M …).
+    const fmt = (n: number, digits = 1) => {
+      const v = Number.isFinite(n) ? n : 0;
+      if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(digits) + "M";
+      if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(digits) + "k";
+      return v.toFixed(v < 10 && v !== Math.trunc(v) ? digits : 0);
+    };
+
     function renderMetrics() {
       const host = $("#metrics")!;
+      const idle = live.idle_sec === null || live.idle_sec > 5; // no event in >5s = quiet
+      const active = live.tokens_per_sec > 0 || live.events_per_sec > 0;
+
+      // Real, continuously-moving rates derived from the event stream — plus
+      // today's cumulative totals for context. Order is symmetric: 4 live rates,
+      // 3 cumulative.
       const m = metrics[0];
-      host.innerHTML = [
-        ["Tokens heute (in)", todaySpend.tokens_in],
-        ["Tokens heute (out)", todaySpend.tokens_out],
-        ["Kosten heute", "$" + todaySpend.cost_usd.toFixed(4)],
-        ["Done (heute)", m && m.date === today ? m.tasks_done : 0],
-        ["Failed (heute)", m && m.date === today ? m.tasks_failed : 0],
-        ["Tasks gesamt", tasks.length],
-      ]
-        .map(([l, v]) => `<div class="metric"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`)
+      const failedToday = m && m.date === today ? m.tasks_failed : 0;
+      const tiles: Array<[string, string, string, boolean]> = [
+        ["Tokens/s", fmt(live.tokens_per_sec), `${fmt(live.tokens_in_per_sec)}↓ ${fmt(live.tokens_out_per_sec)}↑`, true],
+        ["Events/s", fmt(live.events_per_sec), `${live.window_sec}s Fenster`, true],
+        ["Aktive Tasks", String(live.active_tasks), idle ? "ruhig" : "läuft", true],
+        ["Tokens heute", fmt(todaySpend.tokens_in + todaySpend.tokens_out), `${fmt(todaySpend.tokens_in)} / ${fmt(todaySpend.tokens_out)}`, false],
+        ["Tasks gesamt", String(tasks.length), `${tasks.filter((t) => t.status === "done").length} fertig`, false],
+        ["Failed heute", String(failedToday), "fehlgeschlagen", false],
+      ];
+
+      host.innerHTML = tiles
+        .map(
+          ([l, v, sub, isLive]) =>
+            `<div class="metric${isLive ? " live" : ""}${isLive && idle ? " idle" : ""}${active && isLive ? " hot" : ""}">
+               <div class="v">${esc(v)}</div>
+               <div class="l">${esc(l)}</div>
+               <div class="l" style="opacity:.7">${esc(sub)}</div>
+             </div>`,
+        )
         .join("");
+
+      const rate = $("#term-rate");
+      if (rate) rate.textContent = active ? `${fmt(live.events_per_sec)} ev/s` : "idle";
     }
 
     function renderAll() { renderKanban(); renderAgents(); renderTerminal(); renderMetrics(); }
@@ -241,6 +332,7 @@ const bootstrap = {
       ]);
       tasks = tr.tasks; events = er.events; metrics = mr.daily;
       agents = mr.agents ?? []; todaySpend = mr.today_spend; today = mr.today;
+      if (mr.live) live = mr.live;
       renderAll();
     }
 
@@ -249,6 +341,7 @@ const bootstrap = {
       const boot = JSON.parse(($("#bootstrap") as HTMLScriptElement).textContent || "{}");
       tasks = boot.tasks ?? []; events = boot.events ?? []; metrics = boot.metrics ?? [];
       agents = boot.agents ?? []; todaySpend = boot.today_spend ?? todaySpend; today = boot.today ?? "";
+      if (boot.live) live = boot.live;
       renderAll();
     } catch { /* fall through to refresh() */ }
 
@@ -271,6 +364,18 @@ const bootstrap = {
         es.addEventListener(k, () => refresh());
       }
     } catch { startPolling(); }
+
+    // Live rates are wall-clock relative (they decay to 0 when idle), so the
+    // metrics strip + agent table tick every 2s independently of the SSE feed
+    // that drives the rest — otherwise the numbers would freeze between events.
+    window.setInterval(async () => {
+      try {
+        const mr = await fetch("/api/metrics").then((r) => r.json());
+        metrics = mr.daily; agents = mr.agents ?? []; todaySpend = mr.today_spend;
+        today = mr.today; if (mr.live) live = mr.live;
+        renderMetrics(); renderAgents();
+      } catch { /* transient; next tick retries */ }
+    }, 2000);
 
     // --- Neuer-Auftrag-Formular: POST an /api/jobs, dann sofort refresh -------
     function wireJobForm() {
@@ -323,6 +428,148 @@ const bootstrap = {
       });
     }
     wireJobForm();
+
+    // --- Freigabe-Button auf Karten: POST an /api/approve, dann refresh -------
+    // Delegiert auf den Kanban-Container, weil dessen innerHTML bei jedem Render
+    // neu gebaut wird (einzelne Listener gingen sonst verloren).
+    function wireApprovals() {
+      const kanban = $("#kanban") as HTMLElement | null;
+      if (!kanban) return;
+      kanban.addEventListener("click", async (e) => {
+        const btn = (e.target as HTMLElement)?.closest("[data-approve]") as HTMLButtonElement | null;
+        if (!btn) return;
+        const id = btn.dataset.approve;
+        if (!id) return;
+        btn.disabled = true;
+        const prev = btn.textContent;
+        btn.textContent = "freigegeben …";
+        try {
+          const res = await fetch("/api/approve", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ id }),
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            btn.textContent = "Fehler: " + esc(body.error ?? res.statusText);
+            btn.disabled = false;
+            return;
+          }
+          // Der Orchestrator zieht die Freigabe beim nächsten Poll; refresh holt
+          // die neue Projektion, sobald sich der Status ändert.
+          void refresh();
+        } catch (err) {
+          btn.textContent = "Netzwerkfehler";
+          btn.disabled = false;
+          void prev;
+        }
+      });
+    }
+    wireApprovals();
+
+    // --- Rechte Spalte: Tabs (Terminal | Chat) ------------------------------
+    function wireTabs() {
+      const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>(".rtab"));
+      const views = Array.from(document.querySelectorAll<HTMLElement>(".rview"));
+      for (const tab of tabs) {
+        tab.addEventListener("click", () => {
+          for (const t of tabs) {
+            const on = t === tab;
+            t.classList.toggle("active", on);
+            t.setAttribute("aria-selected", String(on));
+          }
+          const which = tab.dataset.tab;
+          for (const v of views) v.classList.toggle("is-hidden", v.dataset.view !== which);
+          if (which === "chat") (document.getElementById("chat-input") as HTMLTextAreaElement)?.focus();
+        });
+      }
+    }
+    wireTabs();
+
+    // --- Chat (streaming, optional RAG über outbox) -------------------------
+    const chatHistory: { role: string; content: string }[] = [];
+
+    async function loadChatModels() {
+      const sel = document.getElementById("chat-model") as HTMLSelectElement | null;
+      if (!sel) return;
+      const fallback = '<option value="qwen2.5:14b">qwen2.5:14b</option>';
+      try {
+        const r = await fetch("/api/ollama-models").then((x) => x.json());
+        const models: string[] = r.models ?? [];
+        if (!models.length) { sel.innerHTML = fallback; return; }
+        sel.innerHTML = models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
+        sel.value = models.find((m) => m.includes("qwen2.5") && !m.includes("coder")) ?? models[0];
+      } catch { sel.innerHTML = fallback; }
+    }
+    void loadChatModels();
+
+    function addBubble(role: string, text: string): HTMLElement {
+      const log = document.getElementById("chat-log")!;
+      log.querySelector(".chat-empty")?.remove();
+      const b = document.createElement("div");
+      b.className = `bubble ${role}`;
+      b.innerHTML = `<span class="who">${role === "user" ? "Du" : "LLM"}</span><span class="body"></span>`;
+      (b.querySelector(".body") as HTMLElement).textContent = text;
+      log.appendChild(b);
+      log.scrollTop = log.scrollHeight;
+      return b;
+    }
+
+    function wireChat() {
+      const form = document.getElementById("chat-form") as HTMLFormElement | null;
+      if (!form) return;
+      const input = document.getElementById("chat-input") as HTMLTextAreaElement;
+      const send = document.getElementById("chat-send") as HTMLButtonElement;
+      const log = document.getElementById("chat-log")!;
+      if (!log.children.length) log.innerHTML = `<div class="chat-empty">Stelle eine Frage zu deinen Deliverables.</div>`;
+
+      async function submit() {
+        const text = input.value.trim();
+        if (!text) return;
+        const model = (document.getElementById("chat-model") as HTMLSelectElement).value;
+        const useRag = (document.getElementById("chat-rag") as HTMLInputElement).checked;
+        addBubble("user", text);
+        chatHistory.push({ role: "user", content: text });
+        input.value = "";
+        send.disabled = true;
+        const bodyEl = addBubble("assistant", "…").querySelector(".body") as HTMLElement;
+        try {
+          const res = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ messages: chatHistory, model, useRag }),
+          });
+          if (!res.ok || !res.body) {
+            const e = await res.json().catch(() => ({}));
+            bodyEl.textContent = "Fehler: " + esc(e.error ?? res.statusText);
+            return;
+          }
+          const reader = res.body.getReader();
+          const dec = new TextDecoder();
+          let acc = "";
+          bodyEl.textContent = "";
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            acc += dec.decode(value, { stream: true });
+            bodyEl.textContent = acc;
+            log.scrollTop = log.scrollHeight;
+          }
+          chatHistory.push({ role: "assistant", content: acc });
+        } catch {
+          bodyEl.textContent = "Netzwerkfehler";
+        } finally {
+          send.disabled = false;
+          input.focus();
+        }
+      }
+
+      form.addEventListener("submit", (e) => { e.preventDefault(); void submit(); });
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submit(); }
+      });
+    }
+    wireChat();
 
     void refresh();
   </script>

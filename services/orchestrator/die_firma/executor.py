@@ -15,9 +15,15 @@ import os
 import re
 import shutil
 import subprocess
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
+
+# Called during generation with (tokens_in_delta, tokens_out_delta) so the
+# orchestrator can stream live token telemetry instead of one event per call.
+ProgressFn = Callable[[int, int], None]
 
 import httpx
 
@@ -40,7 +46,14 @@ class ExecResult:
 class Executor(Protocol):
     mode: str
 
-    def run(self, job: Job, subtask: Subtask, workdir: Path) -> ExecResult: ...
+    def run(
+        self,
+        job: Job,
+        subtask: Subtask,
+        workdir: Path,
+        attempt: int = 1,
+        progress: ProgressFn | None = None,
+    ) -> ExecResult: ...
 
 
 class MockExecutor:
@@ -49,7 +62,14 @@ class MockExecutor:
 
     mode = "mock"
 
-    def run(self, job: Job, subtask: Subtask, workdir: Path) -> ExecResult:
+    def run(
+        self,
+        job: Job,
+        subtask: Subtask,
+        workdir: Path,
+        attempt: int = 1,
+        progress: ProgressFn | None = None,
+    ) -> ExecResult:
         workdir.mkdir(parents=True, exist_ok=True)
         filename = f"{subtask.id}.txt"
         content = (
@@ -80,12 +100,22 @@ def make_executor(
     ollama_url: str = "http://localhost:11434",
     ollama_model: str = "llama3.2",
     ollama_models: dict[str, str] | None = None,
+    ollama_roles: dict[str, str] | None = None,
+    ollama_escalation_model: str = "deepseek-r1:14b",
 ) -> Executor:
     """Factory selecting the executor from config.toml's [executor].mode."""
     if mode == "mock":
         return MockExecutor()
     if mode == "ollama":
-        return OllamaExecutor(ollama_url, ollama_model, models=ollama_models)
+        from .router import Router
+
+        router = Router(
+            per_type=dict(ollama_models or {}),
+            roles=dict(ollama_roles or {}),
+            default_model=ollama_model,
+            escalation_model=ollama_escalation_model,
+        )
+        return OllamaExecutor(ollama_url, ollama_model, models=ollama_models, router=router)
     if mode == "claude_code":
         return ClaudeCodeExecutor(
             firejail_bin,
@@ -221,7 +251,14 @@ class ClaudeCodeExecutor:
             env["DIE_FIRMA_INGEST_TOKEN"] = self._ingest_token
         return env
 
-    def run(self, job: Job, subtask: Subtask, workdir: Path) -> ExecResult:
+    def run(
+        self,
+        job: Job,
+        subtask: Subtask,
+        workdir: Path,
+        attempt: int = 1,
+        progress: ProgressFn | None = None,
+    ) -> ExecResult:
         workdir.mkdir(parents=True, exist_ok=True)
         env = self._provision_session(job, subtask, workdir)
         prompt = (
@@ -431,6 +468,12 @@ def _worker_prompt(job: Job, subtask: Subtask, context: dict[str, str]) -> str:
             "\n## Files already produced (build on these — re-emit to change them)\n" + joined
         )
     parts.append(f"\n## Your job for this '{subtask.action}' step\n{instr}")
+    # Web jobs get the full design-system brief so the very first pass already
+    # targets a modern, cohesive result instead of a bare template.
+    from .design import design_system_prompt, wants_web
+
+    if wants_web(job, tuple(context)):
+        parts.append(design_system_prompt())
     parts.append(_FILE_PROTOCOL)
     return "\n".join(parts)
 
@@ -456,28 +499,37 @@ class OllamaExecutor:
         timeout: float = 600.0,
         *,
         models: dict[str, str] | None = None,
+        router: "object | None" = None,
     ) -> None:
         self._url = url.rstrip("/")
         self._default_model = model
         self._models = dict(models or {})
         self._client = client or httpx.Client(timeout=timeout)
+        if router is None:
+            from .router import Router
 
-    def model_for(self, job: Job) -> str:
-        """Best available model for this job's type (falls back to the default)."""
-        return self._models.get(job.type, self._default_model)
+            router = Router(per_type=self._models, default_model=model)
+        self._router = router
 
-    def run(self, job: Job, subtask: Subtask, workdir: Path) -> ExecResult:
+    def model_for(self, job: Job, subtask: Subtask | None = None, attempt: int = 1) -> str:
+        """Best available model for this step (routes by role + escalation)."""
+        if subtask is None:
+            return self._models.get(job.type, self._default_model)
+        return self._router.model_for(job, subtask, attempt)
+
+    def run(
+        self,
+        job: Job,
+        subtask: Subtask,
+        workdir: Path,
+        attempt: int = 1,
+        progress: ProgressFn | None = None,
+    ) -> ExecResult:
         workdir.mkdir(parents=True, exist_ok=True)
-        model = self.model_for(job)
+        model = self.model_for(job, subtask, attempt)
         context = _read_workdir(workdir)
         prompt = _worker_prompt(job, subtask, context)
-        resp = self._client.post(
-            f"{self._url}/api/generate",
-            json={"model": model, "prompt": prompt, "stream": False},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        text = str(data.get("response", ""))
+        text, tin, tout = self._generate(model, prompt, progress)
         # Write the deliverable as REAL files (with sub-folders), not one .md blob.
         files = _parse_files(text) or _fallback_file(text, subtask)
         for rel, content in files.items():
@@ -487,9 +539,47 @@ class OllamaExecutor:
         return ExecResult(
             ok=bool(text.strip()) and bool(files),
             output=text[:500],
-            tokens_in=int(data.get("prompt_eval_count", 0) or 0),
-            tokens_out=int(data.get("eval_count", 0) or 0),
+            tokens_in=tin,
+            tokens_out=tout,
             cost_usd=0.0,  # local inference is free
             model=model,
             artifacts=files,
         )
+
+    def _generate(
+        self, model: str, prompt: str, progress: ProgressFn | None
+    ) -> tuple[str, int, int]:
+        """Stream /api/generate so token throughput is observable live. Batches
+        roughly one progress callback per second with the count of new output
+        tokens; returns (full_text, prompt_tokens, output_tokens). Falls back
+        gracefully — a non-streamed single-object response parses as one chunk."""
+        parts: list[str] = []
+        tin = tout = 0
+        since = 0
+        last = time.monotonic()
+        with self._client.stream(
+            "POST",
+            f"{self._url}/api/generate",
+            json={"model": model, "prompt": prompt, "stream": True},
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                piece = obj.get("response", "")
+                if piece:
+                    parts.append(piece)
+                    since += 1
+                if obj.get("done"):
+                    tin = int(obj.get("prompt_eval_count", 0) or 0)
+                    tout = int(obj.get("eval_count", 0) or 0)
+                now = time.monotonic()
+                if progress is not None and since and (now - last) >= 1.0:
+                    progress(0, since)
+                    since = 0
+                    last = now
+        return "".join(parts), tin, tout

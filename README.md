@@ -1,15 +1,25 @@
 # Die Firma — autonome digitale Agentur (lokal)
 
 A local, autonomous "digital agency" system. Drop a job as a Markdown file
-into `inbox/`; the system decomposes it into a DAG of atomic sub-tasks, runs
-them, validates the result, and delivers it to `outbox/` — fully automatically.
+into `inbox/`; the system decomposes it into a DAG of atomic sub-tasks, picks
+the best local model per sub-task, runs them, **reviews and refines** the
+result (text + visual critique), and delivers it to `outbox/` — fully
+automatically, fully offline on [Ollama](https://ollama.com).
 
-![Die Firma dashboard — Kanban, agent monitor, live telemetry terminal and metrics](docs/assets/dashboard.png)
+![Die Firma dashboard — Kanban, colour-coded agent monitor, live telemetry terminal/chat and live metrics](docs/assets/dashboard.png)
 
-> The read-only dashboard: Kanban (Queue / In Progress / Review / Done),
-> agent monitor with token & cost totals, a live telemetry terminal, and daily
-> metrics. Everything you see is a projection of the append-only event log —
-> the agents never write a pixel of it.
+> The read-only dashboard: Kanban (Queue / In Progress / Review / Done), a
+> colour-coded **agent monitor** showing what each agent is doing *right now*, a
+> right-hand panel that toggles between a **live telemetry terminal** and a
+> **chat** (with optional RAG over your deliverables), and a strip of **live
+> metrics** (tokens/s, events/s, active tasks, …). Everything you see is a
+> projection of the append-only event log — the agents never write a pixel of it.
+
+![Agent monitor — per-agent colour, live status, current action and a token-share bar](docs/assets/agent-monitor.png)
+
+> The agent monitor: each agent (`dispatcher` · `worker` · `reviewer` ·
+> `sentinel`) has its own colour, a live `arbeitet`/`bereit` status, its current
+> action, and a bar showing its token share relative to the busiest agent.
 
 ## The iron principle: deterministic one-way data flow
 
@@ -48,21 +58,53 @@ flowchart LR
 ## Architecture (locked)
 
 - **4 core agents:** `dispatcher` (decompose → DAG, ≤2 levels), `worker`
-  (execute), `reviewer` (test/validate), `sentinel` (errors, retry,
-  loop-breaker).
+  (execute), `reviewer` (real quality gate — see below), `sentinel` (errors,
+  retry, loop-breaker).
 - **Execution engine:** the **worker** runs your jobs. Pick the executor in
   `config.toml`:
   - **`ollama`** *(default)* — fully **local** via an [Ollama](https://ollama.com)
-    server. No API key, no cloud, $0 cost.
+    server. No API key, no cloud, $0 cost. Generation is **streamed**, so the
+    dashboard shows live tokens/s instead of one spike per call.
   - **`mock`** — deterministic, no server/key (tests, CI, `./firma demo`).
   - **`claude_code`** — headless Claude Code under `firejail` (cloud, needs a
     key). dispatcher/reviewer/sentinel can use the Anthropic SDK (tiered models).
 - **Concurrency:** semaphore, start = 2 parallel tasks.
 - **Retry:** 3 attempts, exponential backoff (2s/4s/8s) → `blocked` →
   `sentinel` → escalation (red flag + `notify-send`).
-- **Cost guard:** hard daily USD limit; queue pauses when reached.
+- **Cost guard:** hard daily USD limit; queue pauses when reached (local Ollama
+  runs are free, so it never trips).
 - **Delivery:** results to `outbox/<id>/`; code tasks also get a local git
   branch `feature/task-<id>` in an isolated **copy** under `work/<id>/`.
+
+## Quality pipeline & per-task model routing
+
+The worker doesn't just generate once and ship. Each job flows through:
+
+1. **Model router** (`router.py`) — routes every sub-task to the best local
+   model by *role*: code → `qwen2.5-coder:14b`, review → `qwen2.5:14b`,
+   reasoning → `deepseek-r1:14b`, vision → `llava:7b`. On a retry it **escalates**
+   to the reasoning model. Configure in `config.toml` under `[ollama.roles]`.
+2. **Design-system injection** — web jobs get a strong, opinionated design brief
+   (modern layout, cohesive palette, real cart/checkout, inline-SVG imagery, no
+   broken `<img>`) so the first pass already targets production quality.
+3. **Real review** (`quality.py`) — a reviewer model grades the deliverable
+   against a rubric and returns concrete findings; for web output a **vision
+   model (`llava`) critiques a headless screenshot** of the rendered page.
+4. **Generate → critique → refine loop** — findings are fed back into refine
+   passes until the deliverable passes or the pass budget is spent. A
+   HIGH-severity finding always forces a refine, regardless of the model's own
+   verdict.
+
+Tunable in `config.toml` (`[quality]`: `min_score`, `max_refine_passes`,
+`visual`). The visual critic needs `llava` (`ollama pull llava:7b`) and
+Playwright's chromium; without them the gate degrades gracefully to text-only.
+
+## Chat with your deliverables (RAG)
+
+The dashboard's right-hand panel toggles to a **chat** that talks to any local
+Ollama model. With *Job-Kontext* enabled it answers grounded in your `outbox/`
+deliverables via retrieval (embeddings with `nomic-embed-text`, only changed
+files are re-embedded). All loopback-only; nothing leaves your machine.
 
 ## Repository layout
 
@@ -181,10 +223,9 @@ run as headless Claude Code under `firejail` (install it first:
       clean (5 moderate advisories live only in the dev-only `@astrojs/check`
       toolchain); lockfiles consistent.
 - [x] Dashboard: TS strict + `noUncheckedIndexedAccess`, `astro check` 0 errors,
-      vitest 46 passing, 100% coverage on the logic-critical core, axe a11y gate,
-      build green.
-- [x] Orchestrator: ruff + ruff format + mypy `--strict` clean, pytest 63 passing
-      at 94% (core modules 100%).
+      vitest 48 passing (incl. axe a11y gate), build green.
+- [x] Orchestrator: ruff + ruff format + mypy `--strict` clean, pytest 104
+      passing at 91% (core modules 100%).
 - [x] Acceptance E2E (`scripts/e2e.sh`, mock executor, no key): job in →
       processed → `outbox/<id>/` + status `done` → dashboard read API confirms.
 - [x] Fresh build verified against the running server (not a stale build).

@@ -71,15 +71,13 @@ def test_ollama_executor_writes_deliverable_and_tokens(tmp_path):
 
         captured["url"] = str(request.url)
         captured["body"] = _json.loads(request.content)
-        return httpx.Response(
-            200,
-            json={
-                "response": "print('hello from local model')",
-                "prompt_eval_count": 42,
-                "eval_count": 17,
-                "done": True,
-            },
+        # Streamed NDJSON: token chunks then a final done frame with the counts.
+        ndjson = (
+            '{"response": "print(\'hello "}\n'
+            '{"response": "from local model\')"}\n'
+            '{"response": "", "prompt_eval_count": 42, "eval_count": 17, "done": true}\n'
         )
+        return httpx.Response(200, content=ndjson.encode("utf-8"))
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     ex = OllamaExecutor("http://localhost:11434/", "llama3.2", client=client)
@@ -92,11 +90,40 @@ def test_ollama_executor_writes_deliverable_and_tokens(tmp_path):
     assert res.cost_usd == 0.0  # local inference is free
     assert captured["url"].endswith("/api/generate")
     assert captured["body"]["model"] == "llama3.2"
-    assert captured["body"]["stream"] is False
+    assert captured["body"]["stream"] is True
     # No file-block in the response -> fallback writes one real file by action.
     written = (tmp_path / "implement.md").read_text(encoding="utf-8")
     assert "hello from local model" in written
     assert "implement.md" in res.artifacts
+
+
+def test_ollama_executor_streams_progress(tmp_path, monkeypatch):
+    import die_firma.executor as ex_mod
+
+    # Make the monotonic clock jump 10s per call so the 1s throttle fires on
+    # every token frame -> progress is reported live.
+    ticks = iter([0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0])
+    monkeypatch.setattr(ex_mod.time, "monotonic", lambda: next(ticks))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        ndjson = (
+            '{"response": "a"}\n{"response": "b"}\n{"response": "c"}\n'
+            '{"response": "", "eval_count": 3, "done": true}\n'
+        )
+        return httpx.Response(200, content=ndjson.encode("utf-8"))
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    ex = OllamaExecutor("http://localhost:11434", "llama3.2", client=client)
+    deltas: list[int] = []
+    res = ex.run(
+        make_job(),
+        Subtask(id="s", title="t", action="implement"),
+        tmp_path,
+        progress=lambda _din, dout: deltas.append(dout),
+    )
+    assert res.tokens_out == 3
+    # Every output token surfaced via a live progress callback.
+    assert sum(deltas) == 3
 
 
 def test_ollama_executor_empty_response_is_not_ok(tmp_path):

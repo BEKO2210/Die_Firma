@@ -5,15 +5,10 @@
 // route here, so no auth token is required.
 
 import type { APIRoute } from "astro";
+import { json } from "../../lib/http.ts";
 import { parseJobInput, writeJob } from "../../lib/jobs.ts";
 
 export const prerender = false;
-
-const json = (body: unknown, status = 200): Response =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json", "cache-control": "no-store" },
-  });
 
 export const POST: APIRoute = async ({ request }) => {
   let raw: unknown;

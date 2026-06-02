@@ -54,6 +54,12 @@ class Config:
     ollama_url: str
     ollama_model: str
     ollama_models: dict[str, str]
+    ollama_roles: dict[str, str]
+    ollama_escalation_model: str
+    quality_enabled: bool
+    quality_min_score: int
+    quality_max_refine_passes: int
+    quality_visual: bool
     max_parallel: int
     retry: RetryPolicy
     daily_usd_limit: float
@@ -77,6 +83,7 @@ def load_config(start: Path | None = None) -> Config:
     general = raw["general"]
     retry_raw = raw["retry"]
     ollama_raw = raw.get("ollama", {})
+    quality_raw = raw.get("quality", {})
 
     def p(name: str) -> Path:
         return (root / str(general[name])).resolve()
@@ -106,6 +113,13 @@ def load_config(start: Path | None = None) -> Config:
         # Per-task-type model overrides from [ollama.models]; the worker picks
         # the best installed model for each job type (code vs. general, …).
         ollama_models={str(k): str(v) for k, v in dict(ollama_raw.get("models", {})).items()},
+        # Per-role overrides from [ollama.roles] + the retry escalation model.
+        ollama_roles={str(k): str(v) for k, v in dict(ollama_raw.get("roles", {})).items()},
+        ollama_escalation_model=str(ollama_raw.get("escalation_model", "deepseek-r1:14b")),
+        quality_enabled=bool(quality_raw.get("enabled", True)),
+        quality_min_score=int(quality_raw.get("min_score", 75)),
+        quality_max_refine_passes=int(quality_raw.get("max_refine_passes", 2)),
+        quality_visual=bool(quality_raw.get("visual", True)),
         max_parallel=int(raw["concurrency"]["max_parallel_tasks"]),
         retry=RetryPolicy(
             max_attempts=int(retry_raw["max_attempts"]),

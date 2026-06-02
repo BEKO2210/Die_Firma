@@ -37,6 +37,9 @@ allow_unsandboxed = false
 url = "http://localhost:11434"
 # Default model when a task type has no specific override below.
 model = "qwen2.5-coder:14b"
+# On a retry the router escalates here — a reasoning model gets a second,
+# stronger attempt after the first model already failed ("Route-to-Reason").
+escalation_model = "deepseek-r1:14b"
 
 # Best installed model per task type — the worker always uses the model that
 # fits the topic. Edit freely to any model you've pulled (`ollama list`).
@@ -47,6 +50,16 @@ code_gen    = "qwen2.5-coder:14b"
 code_review = "qwen2.5-coder:14b"
 automation  = "qwen2.5-coder:14b"
 data_prep   = "qwen2.5:14b"
+
+# Per-ROLE models for the router. A sub-task is routed by what it does, not just
+# the job type: writing code, reviewing/critiquing, multi-step reasoning,
+# general writing, or looking at a rendered screenshot (vision).
+[ollama.roles]
+code    = "qwen2.5-coder:14b"
+review  = "qwen2.5:14b"
+reason  = "deepseek-r1:14b"
+general = "qwen2.5:14b"
+vision  = "llava:7b"
 
 [concurrency]
 # Semaphore: max parallel tasks. Locked start value = 2 (prompt §1).
@@ -74,3 +87,13 @@ sentinel   = "claude-haiku-4-5"     # Haiku tier
 # Approval-gate trigger: priority 1 always gates; tasks may also opt in via
 # requires_approval: true in their frontmatter.
 gate_priority = 1
+
+[quality]
+# Quality gate (real review): a reviewer model scores each deliverable against a
+# rubric and findings are fed back into refine passes until it passes or the
+# pass budget is spent. For web deliverables a vision model also critiques a
+# rendered screenshot. Set enabled=false to fall back to verify-only review.
+enabled = true
+min_score = 75          # accept threshold (0-100)
+max_refine_passes = 3   # how many times we may rewrite to fix findings
+visual = true           # render + VLM-critique web pages (needs llava + chromium)

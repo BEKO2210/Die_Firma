@@ -215,6 +215,13 @@ class Orchestrator:
             log.append(f"failed review: {result.detail}")
             return JobOutcome("failed", result.detail)
 
+        # -- quality gate (real review: critique + refine) ---------------
+        # The verify command is a hard pass/fail gate; this is the content
+        # review the old pipeline lacked — a reviewer model (and, for web
+        # output, a vision model) grades the deliverable and findings are fed
+        # back into refine passes. Best-effort: never fails an otherwise-good job.
+        self._quality_gate(job, workdir, log)
+
         # -- deliver -----------------------------------------------------
         summary = _build_summary(job, str(task_data["title"]), plan, results)
         delivery = deliver(
@@ -276,14 +283,30 @@ class Orchestrator:
                 agent="worker",
                 message=subtask.action,
             )
-            res = self._executor.run(job, subtask, workdir)
+            emitted = {"out": 0}
+
+            def progress(_din: int, dout: int) -> None:
+                # Live token throughput while the model streams its answer, so the
+                # dashboard's tokens/sec + agent activity update during generation
+                # instead of only when the (minutes-long) call returns.
+                emitted["out"] += dout
+                self._ingest.emit(
+                    "token_usage",
+                    task_id=job.id,
+                    subtask_id=subtask.id,
+                    agent="worker",
+                    tokens_out=dout,
+                )
+
+            res = self._executor.run(job, subtask, workdir, attempt=_n, progress=progress)
+            # Emit only the REMAINDER at the end so streamed deltas aren't double-counted.
             self._ingest.emit(
                 "tool_call_end",
                 task_id=job.id,
                 subtask_id=subtask.id,
                 agent="worker",
                 tokens_in=res.tokens_in,
-                tokens_out=res.tokens_out,
+                tokens_out=max(0, res.tokens_out - emitted["out"]),
                 cost_usd=res.cost_usd,
             )
             if not res.ok:
@@ -308,3 +331,117 @@ class Orchestrator:
             status="done",
         )
         return res
+
+    # -- quality gate (real content review + refine) --------------------
+    def _quality_gate(self, job: Job, workdir: Path, log: RunLog) -> None:
+        """Critique the deliverable with a reviewer model (and a vision model
+        for web pages), feeding findings back into refine passes. Attributes
+        token usage to the `reviewer` agent so the monitor finally reflects it.
+        Entirely best-effort: any error is logged and swallowed."""
+        cfg = self._cfg
+        if not getattr(cfg, "quality_enabled", False):
+            return
+        if getattr(self._executor, "mode", "") != "ollama":
+            return
+
+        from . import quality as Q
+        from .design import design_system_prompt, is_frontend
+        from .ollama_client import OllamaClient
+        from .router import Router
+
+        files = Q.produced_files(workdir)
+        if not files:
+            return
+
+        client = OllamaClient(getattr(cfg, "ollama_url", "http://localhost:11434"))
+        router = Router(
+            per_type=dict(getattr(cfg, "ollama_models", {}) or {}),
+            roles=dict(getattr(cfg, "ollama_roles", {}) or {}),
+            default_model=getattr(cfg, "ollama_model", "qwen2.5-coder:14b"),
+            escalation_model=getattr(cfg, "ollama_escalation_model", "deepseek-r1:14b"),
+        )
+        review_model = router.review_model()
+        code_model = router.per_type.get(job.type, router.default_model)
+        min_score = int(getattr(cfg, "quality_min_score", 75))
+        max_passes = int(getattr(cfg, "quality_max_refine_passes", 2))
+        web = is_frontend(job, files)
+        vision_model = router.vision_model()
+        visual_ok = web and bool(getattr(cfg, "quality_visual", True)) and client.has_model(
+            vision_model
+        )
+
+        self._ingest.emit("status_changed", task_id=job.id, agent="reviewer", status="review")
+        try:
+            for p in range(max_passes + 1):
+                crit = Q.critique_text(client, review_model, job, files)
+                self._ingest.emit(
+                    "token_usage",
+                    task_id=job.id,
+                    agent="reviewer",
+                    tokens_in=crit.tokens_in,
+                    tokens_out=crit.tokens_out,
+                )
+                self._ingest.emit(
+                    "log",
+                    task_id=job.id,
+                    agent="reviewer",
+                    message=f"review score={crit.score} — {crit.summary}"[:500],
+                )
+                log.append(f"critique score={crit.score} pass={crit.passed}: {crit.summary}")
+                findings = list(crit.actionable("medium"))
+                passed = crit.passed and crit.score >= min_score
+
+                if visual_ok:
+                    entry = Q.html_entrypoint(workdir)
+                    png = workdir / ".preview.png"
+                    if entry is not None and Q.render_screenshot(entry, png):
+                        vcrit = Q.critique_visual(client, vision_model, job, png)
+                        self._ingest.emit(
+                            "token_usage",
+                            task_id=job.id,
+                            agent="reviewer",
+                            tokens_in=vcrit.tokens_in,
+                            tokens_out=vcrit.tokens_out,
+                        )
+                        self._ingest.emit(
+                            "log",
+                            task_id=job.id,
+                            agent="reviewer",
+                            message=f"visual score={vcrit.score} — {vcrit.summary}"[:500],
+                        )
+                        log.append(f"visual score={vcrit.score}: {vcrit.summary}")
+                        findings += list(vcrit.actionable("medium"))
+                        passed = passed and vcrit.passed and vcrit.score >= min_score
+                        png.unlink(missing_ok=True)
+
+                if passed or not findings or p >= max_passes:
+                    log.append(f"quality gate done after {p} refine pass(es)")
+                    break
+
+                brief = design_system_prompt() if web else ""
+                new_files, tin, tout = Q.refine(
+                    client, code_model, job, files, findings, extra_brief=brief
+                )
+                for rel, content in new_files.items():
+                    dest = workdir / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_text(content, encoding="utf-8")
+                self._ingest.emit(
+                    "token_usage",
+                    task_id=job.id,
+                    agent="worker",
+                    tokens_in=tin,
+                    tokens_out=tout,
+                )
+                self._ingest.emit(
+                    "log",
+                    task_id=job.id,
+                    agent="reviewer",
+                    message=f"refine pass {p + 1}: fixed {len(findings)} issue(s)",
+                )
+                log.append(f"refine pass {p + 1}: {len(findings)} issues")
+                files = Q.produced_files(workdir)
+        except Exception as exc:  # noqa: BLE001 — quality gate must never crash a job
+            log.append(f"quality gate error (skipped): {exc}")
+        finally:
+            client.close()

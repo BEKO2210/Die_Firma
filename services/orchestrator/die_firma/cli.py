@@ -40,6 +40,8 @@ def _build(cfg: Config) -> tuple[Orchestrator, IngestClient]:
         ollama_url=cfg.ollama_url,
         ollama_model=cfg.ollama_model,
         ollama_models=cfg.ollama_models,
+        ollama_roles=cfg.ollama_roles,
+        ollama_escalation_model=cfg.ollama_escalation_model,
     )
     sentinel = Sentinel(cfg.retry, ingest)
     orch = Orchestrator(cfg, ingest, executor, Dispatcher(), sentinel)
