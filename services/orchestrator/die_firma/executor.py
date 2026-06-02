@@ -21,13 +21,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-# Called during generation with (tokens_in_delta, tokens_out_delta) so the
-# orchestrator can stream live token telemetry instead of one event per call.
-ProgressFn = Callable[[int, int], None]
-
 import httpx
 
 from .models import Job, Subtask
+from .router import Router
+
+# Called during generation with (tokens_in_delta, tokens_out_delta) so the
+# orchestrator can stream live token telemetry instead of one event per call.
+ProgressFn = Callable[[int, int], None]
 
 
 @dataclass
@@ -107,8 +108,6 @@ def make_executor(
     if mode == "mock":
         return MockExecutor()
     if mode == "ollama":
-        from .router import Router
-
         router = Router(
             per_type=dict(ollama_models or {}),
             roles=dict(ollama_roles or {}),
@@ -499,17 +498,13 @@ class OllamaExecutor:
         timeout: float = 600.0,
         *,
         models: dict[str, str] | None = None,
-        router: "object | None" = None,
+        router: Router | None = None,
     ) -> None:
         self._url = url.rstrip("/")
         self._default_model = model
         self._models = dict(models or {})
         self._client = client or httpx.Client(timeout=timeout)
-        if router is None:
-            from .router import Router
-
-            router = Router(per_type=self._models, default_model=model)
-        self._router = router
+        self._router = router or Router(per_type=self._models, default_model=model)
 
     def model_for(self, job: Job, subtask: Subtask | None = None, attempt: int = 1) -> str:
         """Best available model for this step (routes by role + escalation)."""

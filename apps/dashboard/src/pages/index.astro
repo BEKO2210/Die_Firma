@@ -498,7 +498,7 @@ const bootstrap = {
         const models: string[] = r.models ?? [];
         if (!models.length) { sel.innerHTML = fallback; return; }
         sel.innerHTML = models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
-        sel.value = models.find((m) => m.includes("qwen2.5") && !m.includes("coder")) ?? models[0];
+        sel.value = models.find((m) => m.includes("qwen2.5") && !m.includes("coder")) ?? models[0] ?? "qwen2.5:14b";
       } catch { sel.innerHTML = fallback; }
     }
     void loadChatModels();

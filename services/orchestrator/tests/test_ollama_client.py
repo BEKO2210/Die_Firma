@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from die_firma.ollama_client import OllamaClient, encode_image, extract_json, strip_reasoning
@@ -19,7 +17,7 @@ def test_extract_json_plain():
 
 
 def test_extract_json_from_fenced_and_prose():
-    text = "Sure!\n```json\n{\"score\": 80, \"pass\": true}\n```\nDone."
+    text = 'Sure!\n```json\n{"score": 80, "pass": true}\n```\nDone.'
     assert extract_json(text) == {"score": 80, "pass": True}
 
 
