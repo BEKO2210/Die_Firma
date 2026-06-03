@@ -4,6 +4,30 @@ All notable changes to **Die Firma** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Acts on the second project review (operability, security, community).
+
+### Added
+- **License & community:** MIT `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`,
+  `ROADMAP.md`, GitHub issue/PR templates, CI + license badges.
+- **Ingest hardening:** in-process token-bucket rate limiter (`429` +
+  `RateLimit-*`/`Retry-After`) and strict same-origin check on `/api/ingest`.
+- **Event-driven inbox watcher** (`watchdog`) with a polling fallback (replaces
+  the 2s busy-poll); `watchdog` added as an optional `[watch]` extra + dev dep.
+- **Dashboard error toasts** for backend/network failures (job submit, approval,
+  chat), with i18n strings.
+- **SQLite schema versioning** via `PRAGMA user_version` + a migration runner,
+  plus write-tuning pragmas (`synchronous=NORMAL`, `busy_timeout=5000`) and an
+  event read-index migration.
+- **Automated release workflow** — builds the wheel + dashboard tarball and
+  drafts a GitHub Release on `v*` tags.
+- `docs/research-notes.md` documenting the (cited) best-practice basis.
+
+### Changed
+- **Executor factory** parameters grouped into typed `SandboxOptions` /
+  `OllamaOptions` / `ClaudeOptions` bundles (no behaviour change).
+
 ## [0.2.0] — 2026-06-02
 
 Implements the "next quality level" recommendations from the project review.
