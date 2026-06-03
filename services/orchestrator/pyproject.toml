@@ -46,6 +46,11 @@ dev = [
 mutation = [
   "mutmut>=2.5",
 ]
+# Event-driven inbox watching (review §4). Optional: without it the orchestrator
+# falls back to polling. Install with `pip install -e ".[watch]"`.
+watch = [
+  "watchdog>=4",
+]
 
 [project.scripts]
 die-firma = "die_firma.cli:main"
@@ -71,7 +76,7 @@ warn_unreachable = true
 disallow_untyped_defs = true
 # Third-party libs without bundled stubs / optional deps absent in CI.
 [[tool.mypy.overrides]]
-module = ["anthropic.*", "playwright.*"]
+module = ["anthropic.*", "playwright.*", "watchdog.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

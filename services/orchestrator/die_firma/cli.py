@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
-import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -24,6 +23,7 @@ from .orchestrator import Orchestrator
 from .plugins import default_registry, load_plugins_from_dir
 from .scheduling import order_jobs
 from .sentinel import Sentinel
+from .watch import watch_inbox
 from .watcher import ApprovalRegistry, ProcessedRegistry, load_job_file, scan_inbox
 
 # Statuses that terminate processing (won't be retried automatically).
@@ -172,10 +172,15 @@ def cmd_run(cfg: Config, args: argparse.Namespace) -> int:
                 executor=cfg.executor_mode,
             )
         )
-        while True:
+
+        def cycle() -> None:
             for job_id, status in _process_inbox_once(cfg, orch):
                 print(tr.t("cli.job_status", id=job_id, status=status))
-            time.sleep(cfg.poll_interval)
+
+        # Event-driven (watchdog) with a polling fallback; replaces the busy-poll.
+        # Runs until interrupted (Ctrl-C); the return keeps the type checker happy.
+        watch_inbox(cfg.inbox, cycle, poll_interval=cfg.poll_interval)
+        return 0
     finally:
         ingest.close()
 
