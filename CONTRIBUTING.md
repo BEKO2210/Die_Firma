@@ -53,8 +53,11 @@ unit tests with coverage gates, build, and the mock E2E. PRs cannot merge red.
   modules are held at high/100% coverage (see `vitest.config.ts`).
 - Keep new code in the style of its neighbours; match comment density and naming.
 - Adding a new **task type** touches two contracts: `die_firma/models.py`
-  *and* `apps/dashboard/src/lib/types.ts`. Adding behaviour to an existing type
-  needs only a plugin under `tasks/`.
+  *and* `apps/dashboard/src/lib/types.ts`. The canonical list lives in
+  [`contracts/task-types.json`](contracts/task-types.json) — update it first,
+  mirror the change in both modules, and the drift-guard tests
+  (`test_contracts.py` / `contracts.test.ts`) enforce they stay in sync. Adding
+  behaviour to an existing type needs only a plugin under `tasks/`.
 
 ## Tests
 

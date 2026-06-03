@@ -1,0 +1,33 @@
+{
+  "_comment": "Canonical shared vocabulary between the Python orchestrator (die_firma/models.py) and the dashboard (apps/dashboard/src/lib/types.ts). This JSON is the single source of truth; drift-guard tests on both sides fail CI if the code diverges from it. Edit here first, then mirror in both modules.",
+  "task_types": ["code_gen", "code_review", "automation", "data_prep"],
+  "deliverable_formats": ["git_branch", "file", "report"],
+  "agents": ["dispatcher", "worker", "reviewer", "sentinel"],
+  "statuses": [
+    "queued",
+    "planning",
+    "running",
+    "review",
+    "blocked",
+    "done",
+    "failed",
+    "cancelled",
+    "awaiting_approval"
+  ],
+  "terminal_statuses": ["done", "failed", "cancelled"],
+  "event_kinds": [
+    "task_created",
+    "task_updated",
+    "subtask_created",
+    "subtask_updated",
+    "agent_assigned",
+    "tool_call_start",
+    "tool_call_end",
+    "status_changed",
+    "log",
+    "token_usage",
+    "cost_updated",
+    "error",
+    "escalation"
+  ]
+}

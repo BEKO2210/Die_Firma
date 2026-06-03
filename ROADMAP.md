@@ -28,9 +28,10 @@ direction and is prioritised from the project reviews. Status legend:
   any non-loopback deployment; token rotation helper.
 - ⬜ **Executor refactor** — collapse the factory's parameter list behind a
   typed `ExecutorConfig`/builder; one class per mode with a shared interface.
-- ⬜ **Shared task-type schema** — single source of truth (JSON Schema) that
-  generates both the Python `Literal` and the TS union, removing the two-place
-  edit.
+- 🟡 **Shared task-type schema** — `contracts/task-types.json` is now the
+  canonical source, enforced by drift-guard tests on both sides. Remaining:
+  optional codegen that *writes* the Python `Literal` + TS union so it's a
+  one-place edit (today it's edit-the-JSON + mirror, guarded by tests).
 - ⬜ **Release automation to registries** — publish the wheel to PyPI and the
   dashboard image to GHCR on tag.
 
