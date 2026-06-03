@@ -48,6 +48,10 @@ const EN: Catalogue = {
   "chat.inputPlaceholder": "Ask the LLM about your deliverables …",
   "chat.message": "Message",
   "chat.send": "Send",
+  "chat.copy": "Copy",
+  "chat.copied": "Copied",
+  "chat.empty": "Ask a question about your deliverables.",
+  "form.loadExample": "Load example",
   "metrics.bar": "Live metrics",
   "metric.tokensPerSec": "Tokens/s",
   "metric.eventsPerSec": "Events/s",
@@ -71,6 +75,7 @@ const EN: Catalogue = {
   "term.idle": "idle",
   "card.untitled": "(untitled)",
   "card.approve": "Approve",
+  "card.download": "ZIP",
   "kanban.empty": "empty",
   "role.dispatcher": "Planning",
   "role.worker": "Execution",
@@ -83,6 +88,7 @@ const EN: Catalogue = {
   "error.jobFailed": "Could not submit job",
   "error.approveFailed": "Approval failed",
   "error.chatFailed": "Chat failed",
+  "error.copyFailed": "Copy to clipboard failed",
 };
 
 const DE: Catalogue = {
@@ -123,6 +129,10 @@ const DE: Catalogue = {
   "chat.inputPlaceholder": "Frag die LLM etwas zu deinen Deliverables …",
   "chat.message": "Nachricht",
   "chat.send": "Senden",
+  "chat.copy": "Kopieren",
+  "chat.copied": "Kopiert",
+  "chat.empty": "Stelle eine Frage zu deinen Deliverables.",
+  "form.loadExample": "Beispiel laden",
   "metrics.bar": "Live-Metriken",
   "metric.tokensPerSec": "Tokens/s",
   "metric.eventsPerSec": "Events/s",
@@ -146,6 +156,7 @@ const DE: Catalogue = {
   "term.idle": "idle",
   "card.untitled": "(ohne Titel)",
   "card.approve": "Freigeben",
+  "card.download": "ZIP",
   "kanban.empty": "leer",
   "role.dispatcher": "Planung",
   "role.worker": "Ausführung",
@@ -158,6 +169,7 @@ const DE: Catalogue = {
   "error.jobFailed": "Auftrag konnte nicht gesendet werden",
   "error.approveFailed": "Freigabe fehlgeschlagen",
   "error.chatFailed": "Chat fehlgeschlagen",
+  "error.copyFailed": "Kopieren fehlgeschlagen",
 };
 
 const CATALOGUES: Record<Lang, Catalogue> = { en: EN, de: DE };

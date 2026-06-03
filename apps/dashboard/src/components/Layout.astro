@@ -204,6 +204,12 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
         font-family: var(--mono); font-size: 12px; font-weight: 600; cursor: pointer;
       }
       .card .approve:disabled { opacity: 0.6; cursor: progress; }
+      .card .dl {
+        display: inline-block; margin-top: 0.4rem; font-size: 11px;
+        color: var(--accent); text-decoration: none; border: 1px solid var(--border);
+        border-radius: 5px; padding: 0.15rem 0.5rem;
+      }
+      .card .dl:hover { border-color: var(--accent); }
       table { width: 100%; border-collapse: collapse; }
       th, td { text-align: left; padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--border); font-size: 12px; }
       th { color: var(--muted); font-weight: 600; }
@@ -303,6 +309,20 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
       .bubble.assistant { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--border); }
       .bubble .who { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 0.2rem; }
       .bubble .src { display: block; margin-top: 0.35rem; font-size: 10px; color: var(--muted); }
+      /* Rendered Markdown inside an assistant bubble (review §UX). */
+      .bubble .body :is(h1, h2, h3) { margin: 0.4rem 0 0.2rem; font-size: 13px; }
+      .bubble .body p { margin: 0.3rem 0; }
+      .bubble .body ul { margin: 0.3rem 0; padding-left: 1.1rem; }
+      .bubble .body code { background: var(--term-bg); padding: 0 0.25rem; border-radius: 4px; font-family: var(--mono); font-size: 11.5px; }
+      .bubble .body pre { background: var(--term-bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.6rem; overflow-x: auto; margin: 0.4rem 0; }
+      .bubble .body pre code { background: none; padding: 0; }
+      .bubble .body a { color: var(--accent); }
+      .bubble .copy-btn {
+        margin-top: 0.4rem; background: var(--panel); color: var(--muted);
+        border: 1px solid var(--border); border-radius: 5px; padding: 0.15rem 0.5rem;
+        font-family: var(--mono); font-size: 10px; cursor: pointer;
+      }
+      .bubble .copy-btn:hover { color: var(--fg); border-color: var(--accent); }
       .chat-empty { color: var(--muted); font-style: italic; margin: auto; text-align: center; }
       #chat-form { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
       #chat-input {
@@ -415,6 +435,8 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
         cursor: pointer;
       }
       .new-job button:disabled { opacity: 0.5; cursor: progress; }
+      .new-job button.secondary { background: var(--panel-2); color: var(--fg); border: 1px solid var(--border); }
+      .new-job button.secondary:hover { border-color: var(--accent); }
       .new-job .form-msg { font-size: 12px; color: var(--muted); }
       .new-job .form-msg[data-kind="ok"] { color: var(--done); }
       .new-job .form-msg[data-kind="err"] { color: var(--failed); }

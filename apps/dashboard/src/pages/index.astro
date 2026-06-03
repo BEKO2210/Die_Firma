@@ -106,6 +106,7 @@ const bootstrap = {
         </div>
         <div class="row actions">
           <button type="submit" id="job-submit">{t("form.submit")}</button>
+          <button type="button" id="job-example" class="secondary">{t("form.loadExample")}</button>
           <span class="form-msg" id="job-msg" role="status" aria-live="polite"></span>
         </div>
       </form>
@@ -163,6 +164,8 @@ const bootstrap = {
   <script type="application/json" id="bootstrap" set:html={JSON.stringify(bootstrap)}></script>
 
   <script>
+    import { renderMarkdown } from "../lib/markdown.ts";
+
     type AnyTask = {
       id: string; type: string | null; priority: number | null; title: string | null;
       status: string | null; agent: string | null; total_tokens_in: number;
@@ -253,6 +256,9 @@ const bootstrap = {
              ${t.error ? `<div class="id" style="color:var(--failed)">${esc(t.error)}</div>` : ""}
              ${t.status === "awaiting_approval"
                ? `<button class="approve" type="button" data-approve="${esc(t.id)}" data-testid="approve-btn">${esc(T("card.approve"))}</button>`
+               : ""}
+             ${t.status === "done"
+               ? `<a class="dl" href="/api/export?task=${encodeURIComponent(t.id)}" download data-testid="download-btn">⬇ ${esc(T("card.download"))}</a>`
                : ""}
            </article>`,
         );
@@ -504,6 +510,20 @@ const bootstrap = {
     }
     wireJobForm();
 
+    // Onboarding: one click fills the form with a runnable example (review §UX).
+    $("#job-example")?.addEventListener("click", () => {
+      const set = (sel: string, v: string) => {
+        const el = $(sel) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+        if (el) el.value = v;
+      };
+      set("#job-title", "Reverse a string in Python");
+      set("#job-description", "Write a small function reverse(s) with a couple of examples.");
+      set("#job-type", "code_gen");
+      set("#job-priority", "2");
+      set("#job-deliverable", "file");
+      ($("#job-title") as HTMLInputElement)?.focus();
+    });
+
     // --- Freigabe-Button auf Karten: POST an /api/approve, dann refresh -------
     // Delegiert auf den Kanban-Container, weil dessen innerHTML bei jedem Render
     // neu gebaut wird (einzelne Listener gingen sonst verloren).
@@ -586,8 +606,24 @@ const bootstrap = {
       log.querySelector(".chat-empty")?.remove();
       const b = document.createElement("div");
       b.className = `bubble ${role}`;
-      b.innerHTML = `<span class="who">${role === "user" ? "Du" : "LLM"}</span><span class="body"></span>`;
+      const who = role === "user" ? "Du" : "LLM";
+      b.innerHTML = `<span class="who">${who}</span><span class="body"></span>`;
       (b.querySelector(".body") as HTMLElement).textContent = text;
+      if (role === "assistant") {
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "copy-btn";
+        copy.textContent = T("chat.copy");
+        copy.setAttribute("aria-label", T("chat.copy"));
+        copy.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(b.dataset.raw ?? "");
+            copy.textContent = T("chat.copied");
+            window.setTimeout(() => (copy.textContent = T("chat.copy")), 1500);
+          } catch { toast(T("error.copyFailed"), "error"); }
+        });
+        b.appendChild(copy);
+      }
       log.appendChild(b);
       log.scrollTop = log.scrollHeight;
       return b;
@@ -599,7 +635,7 @@ const bootstrap = {
       const input = document.getElementById("chat-input") as HTMLTextAreaElement;
       const send = document.getElementById("chat-send") as HTMLButtonElement;
       const log = document.getElementById("chat-log")!;
-      if (!log.children.length) log.innerHTML = `<div class="chat-empty">Stelle eine Frage zu deinen Deliverables.</div>`;
+      if (!log.children.length) log.innerHTML = `<div class="chat-empty">${esc(T("chat.empty"))}</div>`;
 
       async function submit() {
         const text = input.value.trim();
@@ -632,9 +668,15 @@ const bootstrap = {
             const { done, value } = await reader.read();
             if (done) break;
             acc += dec.decode(value, { stream: true });
-            bodyEl.textContent = acc;
+            bodyEl.textContent = acc; // live plain text while streaming
             log.scrollTop = log.scrollHeight;
           }
+          // Final answer: render Markdown (code blocks, lists, bold, links) and
+          // stash the raw text on the bubble for the copy button.
+          const bubble = bodyEl.closest(".bubble") as HTMLElement | null;
+          if (bubble) bubble.dataset.raw = acc;
+          bodyEl.innerHTML = renderMarkdown(acc);
+          log.scrollTop = log.scrollHeight;
           chatHistory.push({ role: "assistant", content: acc });
         } catch (err) {
           bodyEl.textContent = T("error.network");
