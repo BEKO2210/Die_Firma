@@ -43,7 +43,10 @@ export const GET: APIRoute = ({ url }) => {
   const entries: ZipEntry[] = [];
   collect(dir, task, entries);
   const zip = createZip(entries);
-  return new Response(zip, {
+  // Hand the Response a concrete ArrayBuffer (a typed array isn't a BodyInit
+  // under this TS lib config).
+  const body = zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer;
+  return new Response(body, {
     status: 200,
     headers: {
       "content-type": "application/zip",
