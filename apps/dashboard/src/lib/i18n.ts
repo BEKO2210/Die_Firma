@@ -77,6 +77,12 @@ const EN: Catalogue = {
   "role.reviewer": "Review",
   "role.sentinel": "Sentinel",
   "theme.toggle": "Toggle light/dark theme",
+  "toast.dismiss": "Dismiss",
+  "error.generic": "Error",
+  "error.network": "Network error",
+  "error.jobFailed": "Could not submit job",
+  "error.approveFailed": "Approval failed",
+  "error.chatFailed": "Chat failed",
 };
 
 const DE: Catalogue = {
@@ -146,6 +152,12 @@ const DE: Catalogue = {
   "role.reviewer": "Review",
   "role.sentinel": "Wächter",
   "theme.toggle": "Hell/Dunkel umschalten",
+  "toast.dismiss": "Schließen",
+  "error.generic": "Fehler",
+  "error.network": "Netzwerkfehler",
+  "error.jobFailed": "Auftrag konnte nicht gesendet werden",
+  "error.approveFailed": "Freigabe fehlgeschlagen",
+  "error.chatFailed": "Chat fehlgeschlagen",
 };
 
 const CATALOGUES: Record<Lang, Catalogue> = { en: EN, de: DE };
