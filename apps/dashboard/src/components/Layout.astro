@@ -367,6 +367,31 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
       }
       .empty { color: var(--muted); font-style: italic; padding: 0.5rem; }
       a { color: var(--accent); }
+
+      /* Toast notifications (review §7): non-blocking error/info popups, bottom-
+         right, auto-dismiss. role=alert on the container so they're announced. */
+      .toasts {
+        position: fixed; bottom: 1rem; right: 1rem; z-index: 1000;
+        display: flex; flex-direction: column; gap: 0.5rem; max-width: min(380px, 90vw);
+      }
+      .toast {
+        background: var(--panel); color: var(--fg);
+        border: 1px solid var(--border); border-left: 3px solid var(--c, var(--accent));
+        border-radius: 8px; padding: 0.55rem 0.7rem; font-size: 12.5px;
+        box-shadow: 0 6px 24px -8px rgba(0,0,0,0.5);
+        display: flex; align-items: flex-start; gap: 0.5rem;
+        animation: toast-in 180ms ease;
+      }
+      .toast[data-kind="error"] { --c: var(--failed); }
+      .toast[data-kind="ok"] { --c: var(--done); }
+      .toast[data-kind="info"] { --c: var(--accent); }
+      .toast .msg { flex: 1; word-break: break-word; }
+      .toast .x {
+        background: none; border: 0; color: var(--muted); cursor: pointer;
+        font-size: 14px; line-height: 1; padding: 0;
+      }
+      .toast .x:hover { color: var(--fg); }
+      @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
       .new-job form { display: grid; gap: 0.6rem; }
       .new-job .row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-end; }
       .new-job label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 12px; }

@@ -6,6 +6,7 @@ import path from "node:path";
 import fs from "node:fs";
 // Embed schema at build time so it survives bundling (no runtime file lookup).
 import schemaSql from "./schema.sql?raw";
+import { runMigrations } from "./migrate.ts";
 
 let instance: Database.Database | null = null;
 
@@ -21,9 +22,15 @@ export function getDb(): Database.Database {
   const dbPath = resolveDbPath();
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
+  // Write-heavy single-writer tuning (research-backed): WAL lets readers run
+  // concurrently; NORMAL is the WAL durability/speed sweet spot; a busy_timeout
+  // avoids spurious SQLITE_BUSY under concurrent access.
   db.pragma("journal_mode = WAL");
+  db.pragma("synchronous = NORMAL");
+  db.pragma("busy_timeout = 5000");
   db.pragma("foreign_keys = ON");
   db.exec(schemaSql);
+  runMigrations(db);
   instance = db;
   return db;
 }
@@ -33,5 +40,6 @@ export function createDb(file = ":memory:"): Database.Database {
   const db = new Database(file);
   db.pragma("foreign_keys = ON");
   db.exec(schemaSql);
+  runMigrations(db);
   return db;
 }

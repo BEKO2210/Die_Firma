@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
-import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -16,7 +15,7 @@ from pathlib import Path
 from .cache import ResultCache
 from .config import Config, load_config
 from .dispatcher import Dispatcher
-from .executor import make_executor
+from .executor import ClaudeOptions, OllamaOptions, SandboxOptions, make_executor
 from .i18n import Translator, load_translator
 from .ingest_client import IngestClient
 from .models import DELIVERABLE_FORMATS, TASK_TYPES
@@ -24,6 +23,7 @@ from .orchestrator import Orchestrator
 from .plugins import default_registry, load_plugins_from_dir
 from .scheduling import order_jobs
 from .sentinel import Sentinel
+from .watch import watch_inbox
 from .watcher import ApprovalRegistry, ProcessedRegistry, load_job_file, scan_inbox
 
 # Statuses that terminate processing (won't be retried automatically).
@@ -38,21 +38,26 @@ def _build(cfg: Config) -> tuple[Orchestrator, IngestClient]:
     ingest = IngestClient(cfg.dashboard_url, cfg.ingest_token)
     executor = make_executor(
         cfg.executor_mode,
-        firejail_bin=cfg.firejail_bin,
-        allow_unsandboxed=cfg.allow_unsandboxed,
         worker_model=cfg.models.get("worker", "claude-opus-4-8"),
-        ingest_url=cfg.dashboard_url,
-        ingest_token=cfg.ingest_token,
-        hooks_dir=cfg.root / "hooks",
-        settings_template=cfg.root / ".claude" / "settings.template.json",
-        ollama_url=cfg.ollama_url,
-        ollama_model=cfg.ollama_model,
-        ollama_models=cfg.ollama_models,
-        ollama_roles=cfg.ollama_roles,
-        ollama_escalation_model=cfg.ollama_escalation_model,
-        ollama_timeout=cfg.ollama_timeout,
-        ollama_fallback_model=cfg.ollama_fallback_model,
-        offline_fallback=cfg.offline_fallback,
+        sandbox=SandboxOptions(
+            firejail_bin=cfg.firejail_bin, allow_unsandboxed=cfg.allow_unsandboxed
+        ),
+        claude=ClaudeOptions(
+            ingest_url=cfg.dashboard_url,
+            ingest_token=cfg.ingest_token,
+            hooks_dir=cfg.root / "hooks",
+            settings_template=cfg.root / ".claude" / "settings.template.json",
+        ),
+        ollama=OllamaOptions(
+            url=cfg.ollama_url,
+            model=cfg.ollama_model,
+            models=cfg.ollama_models,
+            roles=cfg.ollama_roles,
+            escalation_model=cfg.ollama_escalation_model,
+            timeout=cfg.ollama_timeout,
+            fallback_model=cfg.ollama_fallback_model,
+            offline_fallback=cfg.offline_fallback,
+        ),
         cache=ResultCache(cfg.cache_dir, enabled=cfg.cache_enabled),
     )
     sentinel = Sentinel(cfg.retry, ingest)
@@ -172,10 +177,15 @@ def cmd_run(cfg: Config, args: argparse.Namespace) -> int:
                 executor=cfg.executor_mode,
             )
         )
-        while True:
+
+        def cycle() -> None:
             for job_id, status in _process_inbox_once(cfg, orch):
                 print(tr.t("cli.job_status", id=job_id, status=status))
-            time.sleep(cfg.poll_interval)
+
+        # Event-driven (watchdog) with a polling fallback; replaces the busy-poll.
+        # Runs until interrupted (Ctrl-C); the return keeps the type checker happy.
+        watch_inbox(cfg.inbox, cycle, poll_interval=cfg.poll_interval)
+        return 0
     finally:
         ingest.close()
 

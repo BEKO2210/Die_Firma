@@ -38,6 +38,7 @@ dev = [
   "pytest",
   "pytest-cov",
   "types-PyYAML",
+  "watchdog>=4",
 ]
 # Mutation testing (review §7): verifies the *tests* actually catch logic bugs,
 # not just that lines are executed. Optional + non-blocking — run via
@@ -45,6 +46,11 @@ dev = [
 # install stays lean.
 mutation = [
   "mutmut>=2.5",
+]
+# Event-driven inbox watching (review §4). Optional: without it the orchestrator
+# falls back to polling. Install with `pip install -e ".[watch]"`.
+watch = [
+  "watchdog>=4",
 ]
 
 [project.scripts]

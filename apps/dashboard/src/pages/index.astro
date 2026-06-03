@@ -158,6 +158,8 @@ const bootstrap = {
   <footer class="metrics-bar" id="metrics" data-testid="metrics" aria-label={t("metrics.bar")}></footer>
   </div>
 
+  <div class="toasts" id="toasts" data-testid="toasts" role="alert" aria-live="assertive"></div>
+
   <script type="application/json" id="bootstrap" set:html={JSON.stringify(bootstrap)}></script>
 
   <script>
@@ -204,6 +206,27 @@ const bootstrap = {
       const tpl = I18N[key] ?? key;
       return vars ? tpl.replace(/\{(\w+)\}/g, (_m, k) => (k in vars ? String(vars[k]) : `{${k}}`)) : tpl;
     };
+
+    // Toast notifications (review §7): surface backend/network errors instead of
+    // hiding them in the console. Auto-dismiss; dismissable; deduped briefly.
+    let lastToast = "";
+    let lastToastAt = 0;
+    function toast(message: string, kind: "error" | "ok" | "info" = "error", ttlMs = 6000) {
+      const host = $("#toasts");
+      if (!host) return;
+      const now = Date.now();
+      if (message === lastToast && now - lastToastAt < 3000) return; // dedupe bursts
+      lastToast = message; lastToastAt = now;
+      const el = document.createElement("div");
+      el.className = "toast";
+      el.dataset.kind = kind;
+      el.innerHTML = `<span class="msg"></span><button class="x" type="button" aria-label="${esc(T("toast.dismiss"))}">×</button>`;
+      (el.querySelector(".msg") as HTMLElement).textContent = message;
+      const close = () => el.remove();
+      (el.querySelector(".x") as HTMLButtonElement).addEventListener("click", close);
+      host.appendChild(el);
+      if (ttlMs > 0) window.setTimeout(close, ttlMs);
+    }
 
     let tasks: AnyTask[] = [];
     let events: AnyEvent[] = [];
@@ -457,7 +480,9 @@ const bootstrap = {
           const body = await res.json().catch(() => ({}));
           if (!res.ok) {
             msg.dataset.kind = "err";
-            msg.textContent = "Fehler: " + esc(body.error ?? res.statusText);
+            const detail = String(body.error ?? res.statusText);
+            msg.textContent = T("error.generic") + ": " + esc(detail);
+            toast(T("error.jobFailed") + ": " + detail, "error");
             return;
           }
           msg.dataset.kind = "ok";
@@ -469,7 +494,9 @@ const bootstrap = {
           void refresh();
         } catch (err) {
           msg.dataset.kind = "err";
-          msg.textContent = "Netzwerkfehler: " + esc(err instanceof Error ? err.message : String(err));
+          const detail = err instanceof Error ? err.message : String(err);
+          msg.textContent = T("error.network") + ": " + esc(detail);
+          toast(T("error.network") + ": " + detail, "error");
         } finally {
           btn.disabled = false;
         }
@@ -499,16 +526,19 @@ const bootstrap = {
           });
           if (!res.ok) {
             const body = await res.json().catch(() => ({}));
-            btn.textContent = "Fehler: " + esc(body.error ?? res.statusText);
+            const detail = String(body.error ?? res.statusText);
+            btn.textContent = T("error.generic");
             btn.disabled = false;
+            toast(T("error.approveFailed") + ": " + detail, "error");
             return;
           }
           // Der Orchestrator zieht die Freigabe beim nächsten Poll; refresh holt
           // die neue Projektion, sobald sich der Status ändert.
           void refresh();
         } catch (err) {
-          btn.textContent = "Netzwerkfehler";
+          btn.textContent = T("error.network");
           btn.disabled = false;
+          toast(T("error.network") + ": " + (err instanceof Error ? err.message : String(err)), "error");
           void prev;
         }
       });
@@ -589,7 +619,9 @@ const bootstrap = {
           });
           if (!res.ok || !res.body) {
             const e = await res.json().catch(() => ({}));
-            bodyEl.textContent = "Fehler: " + esc(e.error ?? res.statusText);
+            const detail = String(e.error ?? res.statusText);
+            bodyEl.textContent = T("error.generic") + ": " + esc(detail);
+            toast(T("error.chatFailed") + ": " + detail, "error");
             return;
           }
           const reader = res.body.getReader();
@@ -604,8 +636,9 @@ const bootstrap = {
             log.scrollTop = log.scrollHeight;
           }
           chatHistory.push({ role: "assistant", content: acc });
-        } catch {
-          bodyEl.textContent = "Netzwerkfehler";
+        } catch (err) {
+          bodyEl.textContent = T("error.network");
+          toast(T("error.network") + ": " + (err instanceof Error ? err.message : String(err)), "error");
         } finally {
           send.disabled = false;
           input.focus();

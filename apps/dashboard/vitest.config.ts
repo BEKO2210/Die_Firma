@@ -19,6 +19,8 @@ export default getViteConfig({
         "src/lib/prometheus.ts",
         "src/lib/i18n.ts",
         "src/lib/vectorstore.ts",
+        "src/lib/guard.ts",
+        "src/lib/migrate.ts",
       ],
       thresholds: {
         "src/lib/validate.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
@@ -28,6 +30,8 @@ export default getViteConfig({
         "src/lib/prometheus.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/i18n.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/vectorstore.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/lib/guard.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/lib/migrate.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
       },
     },
   },

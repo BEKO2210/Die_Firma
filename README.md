@@ -1,5 +1,8 @@
 # Die Firma — autonome digitale Agentur (lokal)
 
+[![CI](https://github.com/beko2210/die_firma/actions/workflows/ci.yml/badge.svg)](https://github.com/beko2210/die_firma/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A local, autonomous "digital agency" system. Drop a job as a Markdown file
 into `inbox/`; the system decomposes it into a DAG of atomic sub-tasks, picks
 the best local model per sub-task, runs them, **reviews and refines** the
@@ -254,3 +257,10 @@ run as headless Claude Code under `firejail` (install it first:
 - [ ] **Host-only (not verifiable in CI):** firejail sandbox, live Claude
       worker with a real key, `systemd --user` services, `notify-send`
       escalations. Implemented fail-closed; must be exercised on a Pop!_OS host.
+
+## Contributing & license
+
+Contributions welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup and
+the gate checklist, [`ROADMAP.md`](ROADMAP.md) for direction, and
+[`SECURITY.md`](SECURITY.md) to report vulnerabilities. Licensed under the
+[MIT License](LICENSE).

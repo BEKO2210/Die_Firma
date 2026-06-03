@@ -94,55 +94,82 @@ class MockExecutor:
         )
 
 
+# Grouped, typed option bundles so the factory takes a handful of cohesive
+# objects instead of ~14 loose parameters (review #5). Each has sane defaults,
+# so a caller only sets what the chosen mode needs.
+@dataclass(frozen=True)
+class SandboxOptions:
+    """Sandboxing for the claude_code worker."""
+
+    firejail_bin: str = "firejail"
+    allow_unsandboxed: bool = False
+
+
+@dataclass(frozen=True)
+class OllamaOptions:
+    """Everything the local Ollama executor needs."""
+
+    url: str = "http://localhost:11434"
+    model: str = "llama3.2"
+    models: dict[str, str] = field(default_factory=dict)
+    roles: dict[str, str] = field(default_factory=dict)
+    escalation_model: str = "deepseek-r1:14b"
+    timeout: float = 600.0
+    fallback_model: str = ""
+    offline_fallback: bool = False
+
+
+@dataclass(frozen=True)
+class ClaudeOptions:
+    """Telemetry/session wiring for the headless Claude Code worker."""
+
+    ingest_url: str | None = None
+    ingest_token: str | None = None
+    hooks_dir: Path | None = None
+    settings_template: Path | None = None
+
+
 def make_executor(
     mode: str,
     *,
-    firejail_bin: str,
-    allow_unsandboxed: bool,
-    worker_model: str,
-    ingest_url: str | None = None,
-    ingest_token: str | None = None,
-    hooks_dir: Path | None = None,
-    settings_template: Path | None = None,
-    ollama_url: str = "http://localhost:11434",
-    ollama_model: str = "llama3.2",
-    ollama_models: dict[str, str] | None = None,
-    ollama_roles: dict[str, str] | None = None,
-    ollama_escalation_model: str = "deepseek-r1:14b",
-    ollama_timeout: float = 600.0,
-    ollama_fallback_model: str = "",
-    offline_fallback: bool = False,
+    worker_model: str = "claude-opus-4-8",
+    sandbox: SandboxOptions | None = None,
+    ollama: OllamaOptions | None = None,
+    claude: ClaudeOptions | None = None,
     cache: ResultCache | None = None,
 ) -> Executor:
     """Factory selecting the executor from config.toml's [executor].mode."""
     if mode == "mock":
         return MockExecutor()
     if mode == "ollama":
+        opts = ollama or OllamaOptions()
         router = Router(
-            per_type=dict(ollama_models or {}),
-            roles=dict(ollama_roles or {}),
-            default_model=ollama_model,
-            escalation_model=ollama_escalation_model,
+            per_type=dict(opts.models),
+            roles=dict(opts.roles),
+            default_model=opts.model,
+            escalation_model=opts.escalation_model,
         )
         return OllamaExecutor(
-            ollama_url,
-            ollama_model,
-            models=ollama_models,
+            opts.url,
+            opts.model,
+            models=opts.models,
             router=router,
-            timeout=ollama_timeout,
-            fallback_model=ollama_fallback_model,
-            offline_fallback=offline_fallback,
+            timeout=opts.timeout,
+            fallback_model=opts.fallback_model,
+            offline_fallback=opts.offline_fallback,
             cache=cache,
         )
     if mode == "claude_code":
+        sb = sandbox or SandboxOptions()
+        cc = claude or ClaudeOptions()
         return ClaudeCodeExecutor(
-            firejail_bin,
-            allow_unsandboxed,
+            sb.firejail_bin,
+            sb.allow_unsandboxed,
             worker_model,
-            ingest_url=ingest_url,
-            ingest_token=ingest_token,
-            hooks_dir=hooks_dir,
-            settings_template=settings_template,
+            ingest_url=cc.ingest_url,
+            ingest_token=cc.ingest_token,
+            hooks_dir=cc.hooks_dir,
+            settings_template=cc.settings_template,
         )
     raise ValueError(f"unknown executor mode: {mode!r}")
 
