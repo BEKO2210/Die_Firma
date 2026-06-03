@@ -38,6 +38,7 @@ dev = [
   "pytest",
   "pytest-cov",
   "types-PyYAML",
+  "watchdog>=4",
 ]
 # Mutation testing (review §7): verifies the *tests* actually catch logic bugs,
 # not just that lines are executed. Optional + non-blocking — run via
@@ -76,7 +77,7 @@ warn_unreachable = true
 disallow_untyped_defs = true
 # Third-party libs without bundled stubs / optional deps absent in CI.
 [[tool.mypy.overrides]]
-module = ["anthropic.*", "playwright.*", "watchdog.*"]
+module = ["anthropic.*", "playwright.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

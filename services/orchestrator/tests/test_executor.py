@@ -40,27 +40,22 @@ def test_mock_executor_writes_artifact_and_telemetry(tmp_path):
 
 
 def test_make_executor():
-    assert (
-        make_executor(
-            "mock", firejail_bin="firejail", allow_unsandboxed=False, worker_model="m"
-        ).mode
-        == "mock"
-    )
+    from die_firma.executor import OllamaOptions, SandboxOptions
+
+    assert make_executor("mock").mode == "mock"
     cc = make_executor(
-        "claude_code", firejail_bin="firejail", allow_unsandboxed=True, worker_model="m"
+        "claude_code",
+        worker_model="m",
+        sandbox=SandboxOptions(firejail_bin="firejail", allow_unsandboxed=True),
     )
     assert cc.mode == "claude_code"
     oll = make_executor(
         "ollama",
-        firejail_bin="firejail",
-        allow_unsandboxed=False,
-        worker_model="m",
-        ollama_url="http://localhost:11434",
-        ollama_model="llama3.2",
+        ollama=OllamaOptions(url="http://localhost:11434", model="llama3.2"),
     )
     assert oll.mode == "ollama"
     with pytest.raises(ValueError, match="unknown executor mode"):
-        make_executor("bogus", firejail_bin="firejail", allow_unsandboxed=False, worker_model="m")
+        make_executor("bogus")
 
 
 def test_ollama_executor_writes_deliverable_and_tokens(tmp_path):

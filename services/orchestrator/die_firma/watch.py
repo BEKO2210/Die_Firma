@@ -66,9 +66,15 @@ def _watch_with_watchdog(  # pragma: no cover - needs real FS events / OS observ
     from watchdog.events import FileSystemEvent, FileSystemEventHandler
     from watchdog.observers import Observer
 
-    class _Handler(FileSystemEventHandler):  # type: ignore[misc]
+    def _as_str(p: object) -> str:
+        if isinstance(p, (bytes, bytearray)):
+            return p.decode("utf-8", "ignore")
+        return str(p)
+
+    class _Handler(FileSystemEventHandler):
         def on_any_event(self, event: FileSystemEvent) -> None:
-            paths = tuple(p for p in (event.src_path, getattr(event, "dest_path", "")) if p)
+            raw = (event.src_path, getattr(event, "dest_path", ""))
+            paths = tuple(_as_str(p) for p in raw if p)
             if is_relevant_event(event.is_directory, paths):
                 on_change()
 
