@@ -257,6 +257,9 @@ const bootstrap = {
              ${t.status === "awaiting_approval"
                ? `<button class="approve" type="button" data-approve="${esc(t.id)}" data-testid="approve-btn">${esc(T("card.approve"))}</button>`
                : ""}
+             ${t.status === "done"
+               ? `<a class="dl" href="/api/export?task=${encodeURIComponent(t.id)}" download data-testid="download-btn">⬇ ${esc(T("card.download"))}</a>`
+               : ""}
            </article>`,
         );
       }

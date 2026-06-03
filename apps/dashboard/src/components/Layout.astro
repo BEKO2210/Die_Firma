@@ -204,6 +204,12 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
         font-family: var(--mono); font-size: 12px; font-weight: 600; cursor: pointer;
       }
       .card .approve:disabled { opacity: 0.6; cursor: progress; }
+      .card .dl {
+        display: inline-block; margin-top: 0.4rem; font-size: 11px;
+        color: var(--accent); text-decoration: none; border: 1px solid var(--border);
+        border-radius: 5px; padding: 0.15rem 0.5rem;
+      }
+      .card .dl:hover { border-color: var(--accent); }
       table { width: 100%; border-collapse: collapse; }
       th, td { text-align: left; padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--border); font-size: 12px; }
       th { color: var(--muted); font-weight: 600; }

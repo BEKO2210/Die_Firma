@@ -23,6 +23,13 @@ Acts on the second project review (operability, security, community).
 - **Automated release workflow** — builds the wheel + dashboard tarball and
   drafts a GitHub Release on `v*` tags.
 - `docs/research-notes.md` documenting the (cited) best-practice basis.
+- **Shared task-type contract** — `contracts/task-types.json` is the single
+  source of truth for the shared vocabulary, enforced by drift-guard tests on
+  both sides (Python + dashboard).
+- **Chat UX** — answers render Markdown (code/lists/links) with a Copy button;
+  a "Load example" button seeds a runnable job (onboarding).
+- **Deliverable export** — download a job's outbox as a ZIP via `/api/export`
+  (dependency-free pure-TS ZIP writer) + a download link on done cards.
 
 ### Changed
 - **Executor factory** parameters grouped into typed `SandboxOptions` /

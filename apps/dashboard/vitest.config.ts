@@ -22,6 +22,7 @@ export default getViteConfig({
         "src/lib/guard.ts",
         "src/lib/migrate.ts",
         "src/lib/markdown.ts",
+        "src/lib/zip.ts",
       ],
       thresholds: {
         "src/lib/validate.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
@@ -34,6 +35,7 @@ export default getViteConfig({
         "src/lib/guard.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/migrate.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/markdown.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/lib/zip.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
       },
     },
   },
