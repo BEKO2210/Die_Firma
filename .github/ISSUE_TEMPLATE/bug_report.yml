@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a problem with Die Firma
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the report! Please do not include secrets or tokens.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. die-firma new "..." --type code_gen
+        2. die-firma run --once
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - orchestrator (Python)
+        - dashboard (Astro/TS)
+        - CLI / scripts
+        - docs / CI
+        - not sure
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Node version, Python version, executor mode (mock/ollama/claude_code).
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: From runlog/ or the dashboard terminal. Redact any secrets.
+      render: shell
