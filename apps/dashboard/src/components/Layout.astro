@@ -35,6 +35,15 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
         --muted: #9da7b3;
         --accent: #58a6ff;
         --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+        /* Reading typeface: sans for the prose/labels/headings so the UI has a
+           real hierarchy and doesn't read as a uniform monospace wall. Mono is
+           reserved (on purpose) for the wordmark, terminal, code, IDs and the
+           numeric read-outs — that contrast IS the product's identity. */
+        --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        /* Soft elevation so panels read as deliberate surfaces, not flat divs. */
+        --shadow-sm: 0 1px 2px rgba(1, 4, 9, 0.4);
+        --shadow-md: 0 8px 24px -10px rgba(1, 4, 9, 0.6);
+        --radius: 10px;
         --queued: #8b949e;
         --planning: #d29922;
         --running: #58a6ff;
@@ -120,11 +129,20 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
         border-bottom: 1px solid var(--border);
         background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%);
       }
+      /* Brand mark: a small gradient diamond before the wordmark so the header
+         reads as a deliberate identity, not just a label. */
       header.app h1 {
-        font-size: 15px; margin: 0; letter-spacing: 0.12em; font-weight: 700;
+        font-size: 15px; margin: 0; letter-spacing: 0.14em; font-weight: 700;
         color: var(--fg); text-shadow: 0 0 12px rgba(88, 166, 255, 0.25);
+        display: inline-flex; align-items: center; gap: 0.6rem;
       }
-      header.app .sub { color: var(--muted); font-size: 12px; }
+      header.app h1::before {
+        content: ""; width: 12px; height: 12px; border-radius: 3px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        box-shadow: 0 0 10px -1px var(--accent); transform: rotate(45deg);
+        flex: none;
+      }
+      header.app .sub { color: var(--muted); font-size: 12px; font-family: var(--sans); }
       header.app .conn {
         margin-left: auto; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
         display: inline-flex; align-items: center; gap: 0.4rem;
@@ -174,28 +192,38 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
       section.panel {
         background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 0.85rem;
+        border-radius: var(--radius);
+        padding: 0.95rem 1rem;
+        box-shadow: var(--shadow-sm);
       }
       section.panel > h2 {
-        margin: 0 0 0.6rem;
+        margin: 0 0 0.7rem;
+        font-family: var(--sans);
         font-size: 11px;
+        font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.1em;
         color: var(--muted);
+        display: flex; align-items: center; gap: 0.45rem;
+      }
+      /* A short accent tick before each section title — a small, consistent
+         signature that ties the panels together. */
+      section.panel > h2::before {
+        content: ""; width: 3px; height: 11px; border-radius: 2px;
+        background: var(--accent); opacity: 0.8; flex: none;
       }
       .kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
-      .col { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem; min-height: 80px; }
-      .col h3 { margin: 0 0 0.5rem; font-size: 12px; display: flex; justify-content: space-between; }
-      .col h3 .count { color: var(--muted); }
+      .col { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem; min-height: 80px; }
+      .col h3 { margin: 0 0 0.55rem; font-family: var(--sans); font-weight: 600; font-size: 12px; display: flex; justify-content: space-between; }
+      .col h3 .count { color: var(--muted); font-variant-numeric: tabular-nums; }
       .card {
         background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--sc, var(--queued));
         border-radius: 5px; padding: 0.5rem; margin-bottom: 0.5rem;
         transition: border-color 200ms ease, transform 120ms ease;
       }
-      .card:hover { transform: translateX(2px); }
-      .card .id { color: var(--muted); font-size: 11px; }
-      .card .title { font-size: 13px; margin: 0.15rem 0; }
+      .card:hover { transform: translateX(2px); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); }
+      .card .id { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+      .card .title { font-family: var(--sans); font-size: 13px; line-height: 1.4; margin: 0.2rem 0; }
       .badge { display: inline-block; padding: 0 0.4rem; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); }
       .badge[data-status] { color: var(--bg); }
       .card .approve {
@@ -221,6 +249,7 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
         position: relative; background: var(--panel-2); border: 1px solid var(--border);
         border-left: 3px solid var(--c); border-radius: 8px; padding: 0.55rem 0.65rem;
         display: flex; flex-direction: column; gap: 0.3rem; overflow: hidden;
+        box-shadow: var(--shadow-sm);
         transition: border-color 200ms ease, box-shadow 200ms ease;
       }
       .agent-card[data-agent="dispatcher"] { --c: var(--agent-dispatcher); }
@@ -229,8 +258,8 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
       .agent-card[data-agent="sentinel"]   { --c: var(--agent-sentinel); }
       .agent-card.busy { box-shadow: 0 0 0 1px var(--c), 0 0 14px -2px var(--c); }
       .agent-head { display: flex; align-items: center; gap: 0.4rem; }
-      .agent-head .name { font-weight: 700; font-size: 12px; color: var(--fg); }
-      .agent-head .role { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+      .agent-head .name { font-family: var(--sans); font-weight: 700; font-size: 12px; color: var(--fg); letter-spacing: 0.01em; }
+      .agent-head .role { font-family: var(--sans); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
       .agent-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; }
       .agent-card.busy .agent-dot { box-shadow: 0 0 8px var(--c); animation: pulse 1.4s ease-in-out infinite; }
       .agent-state { margin-left: auto; font-size: 10px; padding: 0.05rem 0.4rem; border-radius: 999px;
@@ -256,7 +285,7 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
       .rtabs { display: flex; gap: 0.4rem; margin-bottom: 0.6rem; }
       .rtab {
         flex: 1; background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
-        border-radius: 6px; padding: 0.4rem 0.6rem; font-family: var(--mono); font-size: 11px;
+        border-radius: 7px; padding: 0.4rem 0.6rem; font-family: var(--sans); font-size: 11px; font-weight: 600;
         text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer;
         display: flex; align-items: center; justify-content: center; gap: 0.4rem;
         transition: color 200ms ease, border-color 200ms ease, background-color 200ms ease;
@@ -302,8 +331,9 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
       .chat-log::-webkit-scrollbar { width: 8px; }
       .chat-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
       .bubble {
-        max-width: 88%; padding: 0.5rem 0.7rem; border-radius: 10px; font-size: 12.5px;
-        white-space: pre-wrap; word-break: break-word; line-height: 1.5;
+        max-width: 88%; padding: 0.55rem 0.75rem; border-radius: 12px; font-size: 12.5px;
+        font-family: var(--sans); white-space: pre-wrap; word-break: break-word; line-height: 1.55;
+        box-shadow: var(--shadow-sm);
       }
       .bubble.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 22%, var(--panel-2)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); }
       .bubble.assistant { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--border); }
@@ -323,7 +353,10 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
         font-family: var(--mono); font-size: 10px; cursor: pointer;
       }
       .bubble .copy-btn:hover { color: var(--fg); border-color: var(--accent); }
-      .chat-empty { color: var(--muted); font-style: italic; margin: auto; text-align: center; }
+      .chat-empty {
+        color: var(--muted); font-family: var(--sans); font-size: 12.5px;
+        margin: auto; text-align: center; max-width: 30ch; line-height: 1.55;
+      }
       #chat-form { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
       #chat-input {
         flex: 1; resize: none; background: var(--panel-2); color: var(--fg); border: 1px solid var(--border);
@@ -331,9 +364,11 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
       }
       #chat-input:focus { outline: none; border-color: var(--accent); }
       #chat-send {
-        background: var(--accent); color: var(--bg); border: 0; border-radius: 6px; padding: 0 0.9rem;
-        font-family: var(--mono); font-size: 12px; font-weight: 600; cursor: pointer; align-self: stretch;
+        background: var(--accent); color: var(--bg); border: 0; border-radius: 7px; padding: 0 0.95rem;
+        font-family: var(--sans); font-size: 12px; font-weight: 600; cursor: pointer; align-self: stretch;
+        transition: filter 160ms ease;
       }
+      #chat-send:not(:disabled):hover { filter: brightness(1.08); }
       #chat-send:disabled { opacity: 0.5; cursor: progress; }
 
       /* Live metrics strip — pinned to the bottom, one symmetric row of real,
@@ -360,7 +395,7 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
       .metric .v { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
       .metric .v .u { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 0.2rem; }
       .metric .l {
-        color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em;
+        color: var(--muted); font-family: var(--sans); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em;
         display: flex; align-items: center; gap: 0.35rem;
       }
       .metric.live .l::before {
@@ -385,7 +420,12 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
       @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after { animation: none !important; transition: none !important; }
       }
-      .empty { color: var(--muted); font-style: italic; padding: 0.5rem; }
+      .empty {
+        color: var(--muted); font-family: var(--sans); font-size: 11.5px;
+        padding: 0.85rem 0.6rem; text-align: center; line-height: 1.5;
+        border: 1px dashed var(--border); border-radius: 7px;
+        background: color-mix(in srgb, var(--panel) 40%, transparent);
+      }
       a { color: var(--accent); }
 
       /* Toast notifications (review §7): non-blocking error/info popups, bottom-
@@ -395,10 +435,10 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
         display: flex; flex-direction: column; gap: 0.5rem; max-width: min(380px, 90vw);
       }
       .toast {
-        background: var(--panel); color: var(--fg);
+        background: var(--panel); color: var(--fg); font-family: var(--sans);
         border: 1px solid var(--border); border-left: 3px solid var(--c, var(--accent));
-        border-radius: 8px; padding: 0.55rem 0.7rem; font-size: 12.5px;
-        box-shadow: 0 6px 24px -8px rgba(0,0,0,0.5);
+        border-radius: 9px; padding: 0.6rem 0.75rem; font-size: 12.5px;
+        box-shadow: var(--shadow-md);
         display: flex; align-items: flex-start; gap: 0.5rem;
         animation: toast-in 180ms ease;
       }
@@ -414,7 +454,7 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
       @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
       .new-job form { display: grid; gap: 0.6rem; }
       .new-job .row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-end; }
-      .new-job label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 12px; }
+      .new-job label { display: flex; flex-direction: column; gap: 0.25rem; font-family: var(--sans); font-size: 12px; }
       .new-job label.grow { flex: 1 1 100%; }
       .new-job label > span { color: var(--muted); }
       .new-job label > span em { font-style: normal; opacity: 0.7; }
@@ -430,16 +470,20 @@ const { title = "Die Firma — Dashboard", lang = "de" } = Astro.props;
       .new-job label.check span { color: var(--fg); }
       .new-job .actions { align-items: center; }
       .new-job button {
-        background: var(--accent); color: var(--bg); border: 0; border-radius: 5px;
-        padding: 0.45rem 0.9rem; font-family: var(--mono); font-size: 13px; font-weight: 600;
-        cursor: pointer;
+        background: var(--accent); color: var(--bg); border: 0; border-radius: 7px;
+        padding: 0.5rem 1rem; font-family: var(--sans); font-size: 13px; font-weight: 600;
+        cursor: pointer; transition: filter 160ms ease;
       }
+      .new-job button:not(:disabled):hover { filter: brightness(1.08); }
       .new-job button:disabled { opacity: 0.5; cursor: progress; }
       .new-job button.secondary { background: var(--panel-2); color: var(--fg); border: 1px solid var(--border); }
-      .new-job button.secondary:hover { border-color: var(--accent); }
-      .new-job .form-msg { font-size: 12px; color: var(--muted); }
-      .new-job .form-msg[data-kind="ok"] { color: var(--done); }
-      .new-job .form-msg[data-kind="err"] { color: var(--failed); }
+      .new-job button.secondary:hover { border-color: var(--accent); filter: none; }
+      .new-job .form-msg { font-family: var(--sans); font-size: 12px; color: var(--muted); padding: 0.15rem 0; }
+      .new-job .form-msg[data-kind="ok"], .new-job .form-msg[data-kind="err"] {
+        padding: 0.3rem 0.55rem; border-radius: 6px;
+      }
+      .new-job .form-msg[data-kind="ok"] { color: var(--done); background: color-mix(in srgb, var(--done) 14%, transparent); }
+      .new-job .form-msg[data-kind="err"] { color: var(--failed); background: color-mix(in srgb, var(--failed) 14%, transparent); }
     </style>
   </head>
   <body>

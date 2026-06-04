@@ -440,6 +440,9 @@ const bootstrap = {
       for (const k of ["task_created","task_updated","status_changed","log","error","escalation","cost_updated","token_usage","subtask_created","subtask_updated","agent_assigned","tool_call_start","tool_call_end"]) {
         es.addEventListener(k, () => refresh());
       }
+      // Release the stream + any poll timer when the page goes away, so reloads
+      // don't leak an open SSE connection (and a stranded server handler).
+      window.addEventListener("pagehide", () => { es.close(); stopPolling(); }, { once: true });
     } catch { startPolling(); }
 
     // Live rates are wall-clock relative (they decay to 0 when idle), so the
