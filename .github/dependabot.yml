@@ -1,0 +1,45 @@
+# Dependabot keeps the monorepo's dependencies patched without manual work.
+# Covers the three ecosystems present in this repo: the Astro/Node dashboard
+# (npm), the Python orchestrator (pip / pyproject.toml), and the GitHub Actions
+# used by the CI and release workflows.
+version: 2
+updates:
+  # Dashboard — Astro/Node (apps/dashboard/package.json + package-lock.json)
+  - package-ecosystem: npm
+    directory: /apps/dashboard
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - dashboard
+    groups:
+      dashboard-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Orchestrator — Python (services/orchestrator/pyproject.toml)
+  - package-ecosystem: pip
+    directory: /services/orchestrator
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - orchestrator
+    groups:
+      orchestrator-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # CI / release workflows (.github/workflows/*.yml)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci

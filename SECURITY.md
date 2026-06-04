@@ -31,3 +31,12 @@ Out of scope for the current design (see `ROADMAP.md` for multi-user/cloud
 hardening): network exposure, multi-tenant auth, and centralized audit logging.
 Do **not** expose the dashboard to an untrusted network without adding the
 hardening tracked in the roadmap.
+
+## A note on the `secrets` modules
+
+`apps/dashboard/src/lib/secrets.ts` and
+`services/orchestrator/die_firma/secrets.py` are **secret-validation** modules:
+they reject placeholder tokens and enforce length / entropy / format floors at
+startup. They contain **no** committed credentials — the filenames can trip
+filename-based secret scanners as a false positive. Real secrets live only in a
+local, git-ignored `.env` (see `.env.example`).
