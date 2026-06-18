@@ -17,17 +17,17 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@astrojs/node": "^10.1.2",
-    "astro": "^6.4.2",
-    "better-sqlite3": "^12.10.0"
+    "@astrojs/node": "^10.1.4",
+    "astro": "^6.4.8",
+    "better-sqlite3": "^12.11.1"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
     "@types/better-sqlite3": "^7.6.13",
     "@types/jsdom": "^28.0.3",
-    "@types/node": "^25.9.1",
-    "@vitest/coverage-v8": "^4.1.8",
-    "axe-core": "^4.11.4",
+    "@types/node": "^25.9.3",
+    "@vitest/coverage-v8": "^4.1.9",
+    "axe-core": "^4.12.1",
     "jsdom": "^29.1.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
