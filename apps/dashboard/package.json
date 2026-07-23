@@ -26,8 +26,8 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/jsdom": "^28.0.3",
     "@types/node": "^25.9.1",
-    "@vitest/coverage-v8": "^4.1.8",
-    "axe-core": "^4.11.4",
+    "@vitest/coverage-v8": "^4.1.10",
+    "axe-core": "^4.12.1",
     "jsdom": "^29.1.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
